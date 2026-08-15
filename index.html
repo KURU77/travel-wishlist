@@ -25,11 +25,14 @@
 <header class="app-header">
   <div class="header-inner">
     <h1 class="logo"><span aria-hidden="true">🗺️</span> 行きたい観光地リスト</h1>
+    <span id="offlineBadge" class="offline-badge" hidden>オフライン</span>
     <div class="header-actions">
       <button type="button" id="themeToggle" class="icon-btn" title="テーマ切り替え" aria-label="テーマ切り替え">🌙</button>
       <div class="menu">
         <button type="button" id="menuBtn" class="icon-btn" title="メニュー" aria-label="メニュー" aria-haspopup="true" aria-expanded="false">⋯</button>
         <div class="menu-list" id="menuList" role="menu" hidden>
+          <button type="button" id="editCatBtn" role="menuitem">分類を編集</button>
+          <button type="button" id="offlineBtn" role="menuitem">地図をオフライン保存</button>
           <button type="button" id="exportBtn" role="menuitem">JSONで書き出し</button>
           <button type="button" id="importBtn" role="menuitem">JSONを読み込み</button>
           <button type="button" id="sampleBtn" role="menuitem">サンプルを追加</button>
@@ -171,6 +174,33 @@
       </div>
 
       <button type="button" id="deleteBtn" class="btn btn-danger wide" hidden>この観光地を削除</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 分類の編集ダイアログ -->
+<dialog id="catDialog" class="dialog">
+  <form id="catForm" method="dialog">
+    <div class="dialog-head">
+      <span class="link-btn ghost" aria-hidden="true">閉じる</span>
+      <h2>分類を編集</h2>
+      <button type="button" class="link-btn strong" id="catCloseBtn">閉じる</button>
+    </div>
+
+    <div class="dialog-body">
+      <p class="hint">アイコンと名前はその場で保存されます。↑↓で並び順、🗑で削除できます。</p>
+
+      <ul id="catList" class="cat-list"></ul>
+
+      <div class="cat-add">
+        <input type="text" id="catNewIcon" class="cat-icon-input" maxlength="4" value="📍" aria-label="新しい分類のアイコン" autocomplete="off">
+        <input type="text" id="catNewLabel" maxlength="20" placeholder="新しい分類名" aria-label="新しい分類名" autocomplete="off">
+        <button type="button" id="catAddBtn" class="btn btn-primary">追加</button>
+      </div>
+
+      <div class="emoji-palette" id="emojiPalette" hidden aria-label="アイコンを選ぶ"></div>
+
+      <button type="button" id="catResetBtn" class="btn wide">初期の分類に戻す</button>
     </div>
   </form>
 </dialog>

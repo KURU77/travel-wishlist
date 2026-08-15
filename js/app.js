@@ -4,10 +4,13 @@
   'use strict';
 
   const STORAGE_KEY = 'travel-wishlist.items.v1';
+  const CATEGORY_KEY = 'travel-wishlist.categories.v1';
   const THEME_KEY = 'travel-wishlist.theme';
   const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
 
-  const CATEGORIES = [
+  const FALLBACK_CATEGORY = 'other';
+
+  const DEFAULT_CATEGORIES = [
     { value: 'heritage', label: '遺跡・史跡', icon: '🏛️' },
     { value: 'monument', label: '建造物・名所', icon: '🗿' },
     { value: 'temple',   label: '寺社・教会',   icon: '⛩️' },
@@ -17,6 +20,14 @@
     { value: 'park',     label: '公園・庭園',   icon: '🌳' },
     { value: 'city',     label: '街・エリア',   icon: '🏙️' },
     { value: 'other',    label: 'その他',       icon: '📍' },
+  ];
+
+  /* 分類の編集で使うアイコン候補 */
+  const EMOJI_CHOICES = [
+    '📍', '🏛️', '🗿', '⛩️', '🏰', '🖼️', '🏔️', '🌳', '🏙️', '🗺️',
+    '⛰️', '🌋', '🏝️', '🏖️', '🌊', '💧', '🌸', '🍁', '❄️', '🌌',
+    '⛪', '🕌', '🕍', '🛕', '🗼', '🌉', '🎡', '🎢', '🎭', '🎨',
+    '🚂', '🚢', '✈️', '🍜', '🍣', '☕', '🍷', '♨️', '🏨', '🛍️',
   ];
 
   const STATUSES = [
@@ -30,6 +41,9 @@
     { value: 'mid',  label: '中', weight: 1 },
     { value: 'low',  label: '低', weight: 2 },
   ];
+
+  /* 編集で書き換わるので、既定値は必ず複製して渡す */
+  const defaultCategories = () => DEFAULT_CATEGORIES.map((c) => ({ ...c }));
 
   const $ = (sel) => document.querySelector(sel);
 
@@ -75,6 +89,17 @@
     note: $('#noteInput'),
     menuBtn: $('#menuBtn'),
     menuList: $('#menuList'),
+    editCatBtn: $('#editCatBtn'),
+    offlineBtn: $('#offlineBtn'),
+    offlineBadge: $('#offlineBadge'),
+    catDialog: $('#catDialog'),
+    catList: $('#catList'),
+    catNewIcon: $('#catNewIcon'),
+    catNewLabel: $('#catNewLabel'),
+    catAddBtn: $('#catAddBtn'),
+    catCloseBtn: $('#catCloseBtn'),
+    catResetBtn: $('#catResetBtn'),
+    emojiPalette: $('#emojiPalette'),
     exportBtn: $('#exportBtn'),
     importBtn: $('#importBtn'),
     importFile: $('#importFile'),
@@ -86,6 +111,8 @@
 
   /** @type {Array<object>} */
   let items = [];
+  /** @type {Array<{value:string,label:string,icon:string}>} 利用者が編集できる分類 */
+  let categories = defaultCategories();
   let editingId = null;
   let editingCountry = '';
 
@@ -111,6 +138,44 @@
     }
   }
 
+  function loadCategories() {
+    try {
+      const raw = localStorage.getItem(CATEGORY_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      categories = Array.isArray(parsed) && parsed.length
+        ? parsed.map(normalizeCategory).filter((c) => c.value)
+        : defaultCategories();
+    } catch (err) {
+      console.error('分類の読み込みに失敗しました', err);
+      categories = defaultCategories();
+    }
+    ensureFallbackCategory();
+  }
+
+  function saveCategories() {
+    try {
+      localStorage.setItem(CATEGORY_KEY, JSON.stringify(categories));
+    } catch (err) {
+      console.error('分類の保存に失敗しました', err);
+    }
+  }
+
+  function normalizeCategory(raw) {
+    const o = raw && typeof raw === 'object' ? raw : {};
+    return {
+      value: String(o.value || '').trim(),
+      label: String(o.label || '').trim() || '無名の分類',
+      icon: String(o.icon || '📍').trim().slice(0, 4) || '📍',
+    };
+  }
+
+  /** 「その他」は割り当て先として必ず残す */
+  function ensureFallbackCategory() {
+    if (!categories.some((c) => c.value === FALLBACK_CATEGORY)) {
+      categories.push({ value: FALLBACK_CATEGORY, label: 'その他', icon: '📍' });
+    }
+  }
+
   function normalize(raw) {
     const o = raw && typeof raw === 'object' ? raw : {};
     const lat = Number(o.lat);
@@ -118,7 +183,7 @@
     return {
       id: String(o.id || uid()),
       name: String(o.name || '（無題）'),
-      category: CATEGORIES.some((c) => c.value === o.category) ? o.category : 'other',
+      category: resolveCategory(o.category),
       status: STATUSES.some((s) => s.value === o.status) ? o.status : 'want',
       priority: PRIORITIES.some((p) => p.value === o.priority) ? o.priority : 'mid',
       heritage: !!o.heritage,
@@ -151,12 +216,27 @@
   }
 
   const labelOf = (arr, v) => (arr.find((x) => x.value === v) || {}).label || '';
-  const catOf = (v) => CATEGORIES.find((c) => c.value === v) || CATEGORIES[CATEGORIES.length - 1];
+  const catOf = (v) => categories.find((c) => c.value === v)
+    || { value: FALLBACK_CATEGORY, label: 'その他', icon: '📍' };
+  const resolveCategory = (v) => (categories.some((c) => c.value === v) ? v : FALLBACK_CATEGORY);
 
   function fillSelect(select, options, extra) {
     select.innerHTML = '';
     if (extra) select.appendChild(new Option(extra.label, extra.value));
     options.forEach((o) => select.appendChild(new Option(o.label, o.value)));
+  }
+
+  /** 分類が変わるたびに、入力欄と絞り込みの選択肢を作り直す（選択中の値は維持） */
+  function fillCategorySelects() {
+    const opts = categories.map((c) => ({ value: c.value, label: `${c.icon} ${c.label}` }));
+    const cur = el.category.value;
+    const curFilter = el.filterCategory.value;
+
+    fillSelect(el.category, opts);
+    fillSelect(el.filterCategory, opts, { value: '', label: 'すべての分類' });
+
+    el.category.value = resolveCategory(cur);
+    el.filterCategory.value = categories.some((c) => c.value === curFilter) ? curFilter : '';
   }
 
   function safeUrl(url) {
@@ -357,7 +437,7 @@
     if (map) return map;
     map = L.map('map', { zoomControl: true, attributionControl: true })
       .setView([35.68, 139.76], 3);
-    L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(map);
+    L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19, crossOrigin: 'anonymous' }).addTo(map);
     markerLayer = L.layerGroup().addTo(map);
     renderMarkers();
     fitAll();
@@ -424,12 +504,110 @@
     }
   }
 
+  // ---------- オフライン用の地図保存 ----------
+
+  const TILE_SAVE_CACHE = 'travel-wishlist-tiles-saved';
+  const SAVE_MAX_ZOOM = 13;   // 登録地点の周辺をここまで詳細に保存する
+  const SAVE_TILE_CAP = 1500; // 取りすぎ防止の上限
+
+  const lngToX = (lng, z) => Math.floor(((lng + 180) / 360) * 2 ** z);
+  const latToY = (lat, z) => {
+    const r = (Math.max(-85.05, Math.min(85.05, lat)) * Math.PI) / 180;
+    return Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 2 ** z);
+  };
+  const tileUrl = (z, x, y) => TILE_URL.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+
+  /** 世界全体の低ズーム＋各登録地点の周辺タイルURLを列挙する（重複は除く） */
+  function tilesToSave() {
+    const urls = new Set();
+
+    // 世界地図（z0〜2）。ズームアウトしても真っ白にならないように
+    for (let z = 0; z <= 2; z += 1) {
+      for (let x = 0; x < 2 ** z; x += 1) {
+        for (let y = 0; y < 2 ** z; y += 1) urls.add(tileUrl(z, x, y));
+      }
+    }
+
+    items.forEach((it) => {
+      if (!Number.isFinite(it.lat) || !Number.isFinite(it.lng)) return;
+      // z3〜13 は地点を含むタイル。親子が揃うので途中のズームで欠けない
+      for (let z = 3; z <= SAVE_MAX_ZOOM; z += 1) {
+        const x = lngToX(it.lng, z);
+        const y = latToY(it.lat, z);
+        urls.add(tileUrl(z, x, y));
+        // 最大ズームだけは周囲3×3も入れて、少し動かしても見えるようにする
+        if (z === SAVE_MAX_ZOOM) {
+          for (let dx = -1; dx <= 1; dx += 1) {
+            for (let dy = -1; dy <= 1; dy += 1) {
+              const nx = x + dx;
+              const ny = y + dy;
+              if (nx >= 0 && ny >= 0 && nx < 2 ** z && ny < 2 ** z) urls.add(tileUrl(z, nx, ny));
+            }
+          }
+        }
+      }
+    });
+
+    return Array.from(urls).slice(0, SAVE_TILE_CAP);
+  }
+
+  let saving = false;
+
+  async function saveOfflineMap() {
+    if (saving) { toast('保存中です…'); return; }
+    if (!('caches' in window)) { toast('この環境では保存できません'); return; }
+    if (!navigator.onLine) { toast('オンラインのときに実行してください'); return; }
+
+    const withPin = items.filter((i) => Number.isFinite(i.lat) && Number.isFinite(i.lng)).length;
+    if (!withPin) { toast('地図つきの登録がまだありません'); return; }
+
+    const urls = tilesToSave();
+    if (!confirm(`登録済み${withPin}件の周辺の地図（約${urls.length}枚のタイル）をこの端末に保存します。\n通信量がかかります。実行しますか？`)) return;
+
+    saving = true;
+    const cache = await caches.open(TILE_SAVE_CACHE);
+    let done = 0;
+    let failed = 0;
+
+    // OpenStreetMap のタイルサーバーに負担をかけないよう、同時4本までに絞る
+    const queue = urls.slice();
+    const worker = async () => {
+      while (queue.length) {
+        const url = queue.shift();
+        try {
+          if (await cache.match(url)) { done += 1; continue; }
+          const res = await fetch(url, { mode: 'cors', cache: 'no-store' });
+          if (res.ok) await cache.put(url, res.clone());
+          else failed += 1;
+          done += 1;
+        } catch (err) {
+          failed += 1;
+          done += 1;
+        }
+        if (done % 25 === 0) toast(`地図を保存中… ${done}/${urls.length}`);
+      }
+    };
+
+    try {
+      await Promise.all(Array.from({ length: 4 }, worker));
+      toast(failed
+        ? `地図を保存しました（${urls.length - failed}枚、${failed}枚は失敗）`
+        : `地図を保存しました（${urls.length}枚）`);
+    } finally {
+      saving = false;
+    }
+  }
+
+  function updateOnlineBadge() {
+    el.offlineBadge.hidden = navigator.onLine;
+  }
+
   // ダイアログ内の位置指定マップ
   function ensurePickMap() {
     if (pickMap) return pickMap;
     pickMap = L.map('pickMap', { zoomControl: true, attributionControl: false })
       .setView([35.68, 139.76], 2);
-    L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(pickMap);
+    L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19, crossOrigin: 'anonymous' }).addTo(pickMap);
     pickMap.on('click', (e) => setPickPoint(e.latlng.lat, e.latlng.lng, false));
     return pickMap;
   }
@@ -633,7 +811,7 @@
     el.name.value = s.name;
     el.address.value = s.address || '';
     editingCountry = s.country || (s.address || '').split(',').pop().trim();
-    el.category.value = s.category || 'other';
+    el.category.value = resolveCategory(s.category);
     el.heritage.checked = !!s.heritage;
     if (s.hours) el.hours.value = s.hours;
     if (s.fee) el.fee.value = s.fee;
@@ -678,6 +856,175 @@
       const field = input.closest('.field');
       if (field) field.classList.toggle('auto-filled', !!input.value);
     });
+  }
+
+  // ---------- 分類の編集 ----------
+
+  let paletteTarget = null;
+
+  function openCatDialog() {
+    renderCatList();
+    el.catNewIcon.value = '📍';
+    el.catNewLabel.value = '';
+    hidePalette();
+    el.catDialog.showModal();
+  }
+
+  function countByCategory(value) {
+    return items.filter((i) => i.category === value).length;
+  }
+
+  function renderCatList() {
+    el.catList.innerHTML = '';
+    categories.forEach((cat, index) => el.catList.appendChild(catRow(cat, index)));
+  }
+
+  function catRow(cat, index) {
+    const li = document.createElement('li');
+    li.className = 'cat-row';
+
+    const icon = document.createElement('input');
+    icon.type = 'text';
+    icon.className = 'cat-icon-input';
+    icon.maxLength = 4;
+    icon.value = cat.icon;
+    icon.setAttribute('aria-label', `${cat.label} のアイコン`);
+    icon.addEventListener('focus', () => showPalette(icon));
+    icon.addEventListener('input', () => {
+      cat.icon = icon.value.trim().slice(0, 4) || '📍';
+      commitCategories();
+    });
+
+    const label = document.createElement('input');
+    label.type = 'text';
+    label.maxLength = 20;
+    label.value = cat.label;
+    label.setAttribute('aria-label', '分類名');
+    label.addEventListener('focus', hidePalette);
+    label.addEventListener('input', () => {
+      cat.label = label.value.trim() || '無名の分類';
+      commitCategories();
+    });
+
+    const tools = document.createElement('div');
+    tools.className = 'cat-tools';
+
+    const count = document.createElement('span');
+    count.className = 'cat-count';
+    count.textContent = countByCategory(cat.value) || '';
+    count.title = 'この分類の登録数';
+    tools.appendChild(count);
+
+    tools.appendChild(catToolBtn('↑', '上へ', index === 0, () => moveCategory(index, -1)));
+    tools.appendChild(catToolBtn('↓', '下へ', index === categories.length - 1, () => moveCategory(index, 1)));
+
+    if (cat.value !== FALLBACK_CATEGORY) {
+      tools.appendChild(catToolBtn('🗑', '削除', false, () => deleteCategory(cat)));
+    }
+
+    li.append(icon, label, tools);
+    return li;
+  }
+
+  function catToolBtn(text, title, disabled, onClick) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = text;
+    b.title = title;
+    b.setAttribute('aria-label', title);
+    b.disabled = disabled;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  function commitCategories() {
+    ensureFallbackCategory();
+    saveCategories();
+    fillCategorySelects();
+    render();
+  }
+
+  function moveCategory(index, delta) {
+    const to = index + delta;
+    if (to < 0 || to >= categories.length) return;
+    const [moved] = categories.splice(index, 1);
+    categories.splice(to, 0, moved);
+    commitCategories();
+    renderCatList();
+  }
+
+  function addCategory() {
+    const label = el.catNewLabel.value.trim();
+    if (!label) { el.catNewLabel.focus(); toast('分類名を入力してください'); return; }
+    categories.push({
+      value: 'cat_' + uid(),
+      label,
+      icon: el.catNewIcon.value.trim().slice(0, 4) || '📍',
+    });
+    el.catNewLabel.value = '';
+    el.catNewIcon.value = '📍';
+    hidePalette();
+    commitCategories();
+    renderCatList();
+    toast(`分類「${label}」を追加しました`);
+  }
+
+  function deleteCategory(cat) {
+    const used = countByCategory(cat.value);
+    const msg = used
+      ? `「${cat.label}」を削除すると、${used}件が「その他」になります。よろしいですか？`
+      : `分類「${cat.label}」を削除しますか？`;
+    if (!confirm(msg)) return;
+
+    categories = categories.filter((c) => c.value !== cat.value);
+    ensureFallbackCategory();
+    reassignOrphans();
+    saveCategories();
+    save();
+    fillCategorySelects();
+    render();
+    renderCatList();
+    toast('分類を削除しました');
+  }
+
+  /** 消えた分類を参照している登録を「その他」に寄せる */
+  function reassignOrphans() {
+    items.forEach((it) => { it.category = resolveCategory(it.category); });
+  }
+
+  function resetCategories() {
+    if (!confirm('分類を初期状態に戻しますか？（追加した分類は削除されます）')) return;
+    categories = defaultCategories();
+    reassignOrphans();
+    saveCategories();
+    save();
+    fillCategorySelects();
+    render();
+    renderCatList();
+    toast('分類を初期状態に戻しました');
+  }
+
+  function showPalette(target) {
+    paletteTarget = target;
+    if (!el.emojiPalette.childElementCount) {
+      EMOJI_CHOICES.forEach((emoji) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = emoji;
+        b.addEventListener('click', () => {
+          if (!paletteTarget) return;
+          paletteTarget.value = emoji;
+          paletteTarget.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        el.emojiPalette.appendChild(b);
+      });
+    }
+    el.emojiPalette.hidden = false;
+  }
+
+  function hidePalette() {
+    el.emojiPalette.hidden = true;
+    paletteTarget = null;
   }
 
   // ---------- ダイアログ ----------
@@ -764,7 +1111,13 @@
   // ---------- 書き出し・読み込み ----------
 
   async function exportJson() {
-    const json = JSON.stringify({ app: 'travel-wishlist', version: 1, exportedAt: new Date().toISOString(), items }, null, 2);
+    const json = JSON.stringify({
+      app: 'travel-wishlist',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      categories,
+      items,
+    }, null, 2);
     const file = new File([json], `travel-wishlist-${new Date().toISOString().slice(0, 10)}.json`, { type: 'application/json' });
 
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -792,6 +1145,20 @@
         const parsed = JSON.parse(String(reader.result));
         const incoming = Array.isArray(parsed) ? parsed : parsed.items;
         if (!Array.isArray(incoming)) throw new Error('形式が違います');
+
+        // 分類も一緒に取り込む（既存の分類は残し、知らないものだけ足す）
+        if (!Array.isArray(parsed) && Array.isArray(parsed.categories)) {
+          const knownCats = new Set(categories.map((c) => c.value));
+          parsed.categories.map(normalizeCategory).forEach((c) => {
+            if (c.value && !knownCats.has(c.value)) {
+              categories.push(c);
+              knownCats.add(c.value);
+            }
+          });
+          saveCategories();
+          fillCategorySelects();
+        }
+
         const known = new Set(items.map((i) => i.id));
         const added = incoming.map(normalize).filter((i) => !known.has(i.id));
         items = added.concat(items);
@@ -903,6 +1270,20 @@
     });
     el.menuList.addEventListener('click', (e) => e.stopPropagation());
 
+    el.editCatBtn.addEventListener('click', () => { el.menuList.hidden = true; openCatDialog(); });
+    el.offlineBtn.addEventListener('click', () => { el.menuList.hidden = true; saveOfflineMap(); });
+    window.addEventListener('online', updateOnlineBadge);
+    window.addEventListener('offline', updateOnlineBadge);
+    el.catCloseBtn.addEventListener('click', () => el.catDialog.close());
+    el.catAddBtn.addEventListener('click', addCategory);
+    el.catResetBtn.addEventListener('click', resetCategories);
+    el.catNewIcon.addEventListener('focus', () => showPalette(el.catNewIcon));
+    el.catNewLabel.addEventListener('focus', hidePalette);
+    el.catNewLabel.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); addCategory(); }
+    });
+    el.catDialog.addEventListener('close', hidePalette);
+
     el.exportBtn.addEventListener('click', () => { el.menuList.hidden = true; exportJson(); });
     el.importBtn.addEventListener('click', () => { el.menuList.hidden = true; el.importFile.click(); });
     el.importFile.addEventListener('change', () => {
@@ -945,16 +1326,17 @@
   }
 
   function init() {
-    fillSelect(el.category, CATEGORIES);
     fillSelect(el.status, STATUSES);
     fillSelect(el.priority, PRIORITIES.map((p) => ({ value: p.value, label: '優先度 ' + p.label })));
     fillSelect(el.filterStatus, STATUSES, { value: '', label: 'すべての状態' });
-    fillSelect(el.filterCategory, CATEGORIES, { value: '', label: 'すべての分類' });
 
     applyTheme(localStorage.getItem(THEME_KEY));
+    loadCategories();   // 分類は登録データより先に読む（normalize が参照するため）
+    fillCategorySelects();
     load();
     bind();
     render();
+    updateOnlineBadge();
 
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
       window.addEventListener('load', () => {

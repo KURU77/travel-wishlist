@@ -1,8 +1,13 @@
 /* Service Worker — ホーム画面に追加してオフラインでも開けるようにする */
-const VERSION = 'v1';
+/* アプリを更新したらこの値を上げる。古いキャッシュを捨てて確実に新しい版を配る */
+const VERSION = 'v2';
 const SHELL_CACHE = `travel-wishlist-shell-${VERSION}`;
-const TILE_CACHE = `travel-wishlist-tiles-${VERSION}`;
-const TILE_LIMIT = 400;
+/* タイルのキャッシュ名はバージョンを付けない。アプリを更新しても
+   利用者がダウンロードした地図を消さないため */
+const TILE_CACHE = 'travel-wishlist-tiles';
+const TILE_SAVE_CACHE = 'travel-wishlist-tiles-saved';
+const TILE_LIMIT = 600;
+const KEEP_CACHES = [SHELL_CACHE, TILE_CACHE, TILE_SAVE_CACHE];
 
 const SHELL = [
   './',
@@ -35,7 +40,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then((keys) => Promise.all(
-        keys.filter((k) => k !== SHELL_CACHE && k !== TILE_CACHE).map((k) => caches.delete(k)),
+        keys.filter((k) => !KEEP_CACHES.includes(k)).map((k) => caches.delete(k)),
       ))
       .then(() => self.clients.claim()),
   );
@@ -57,16 +62,23 @@ self.addEventListener('fetch', (event) => {
   // 検索API はキャッシュしない（常に最新を取りに行く）
   if (url.hostname.endsWith('nominatim.openstreetmap.org')) return;
 
-  // 地図タイルはキャッシュ優先。一度見た範囲はオフラインでも表示できる
+  // 地図タイルはキャッシュ優先。一度見た範囲と、明示的に保存した範囲はオフラインでも表示できる
   if (url.hostname.endsWith('tile.openstreetmap.org')) {
     event.respondWith((async () => {
+      // ダウンロード済みの地図（利用者が保存したもの）を最優先で使う
+      const saved = await caches.open(TILE_SAVE_CACHE);
+      const savedHit = await saved.match(req, { ignoreVary: true });
+      if (savedHit) return savedHit;
+
       const cache = await caches.open(TILE_CACHE);
-      const hit = await cache.match(req);
+      const hit = await cache.match(req, { ignoreVary: true });
       if (hit) return hit;
+
       try {
         const res = await fetch(req);
-        if (res.ok) {
-          cache.put(req, res.clone());
+        // 不透明レスポンス（status 0）でも保存しないとオフラインで地図が出ない
+        if (res.ok || res.type === 'opaque') {
+          cache.put(req, res.clone()).catch(() => {});
           trimCache(TILE_CACHE, TILE_LIMIT);
         }
         return res;

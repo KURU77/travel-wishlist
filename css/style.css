@@ -72,6 +72,10 @@ input, select, textarea, button {
 
 .app-header {
   flex: none;
+  /* backdrop-filter が重ね合わせコンテキストを作るため、ヘッダー自体を main より前面に置く。
+     これがないとメニューが地図やリストの下に隠れる */
+  position: relative;
+  z-index: 30;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: saturate(180%) blur(12px);
   -webkit-backdrop-filter: saturate(180%) blur(12px);
@@ -95,6 +99,17 @@ input, select, textarea, button {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.offline-badge {
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-sub);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .header-actions { display: flex; align-items: center; gap: 4px; }
@@ -164,7 +179,8 @@ input, select, textarea, button {
 
 /* ---------- ビュー ---------- */
 
-main { flex: 1; position: relative; overflow: hidden; }
+/* z-index: 0 で重ね合わせコンテキストを作り、Leaflet が内部で使う大きな z-index を閉じ込める */
+main { flex: 1; position: relative; z-index: 0; overflow: hidden; }
 
 .view {
   position: absolute;
@@ -535,6 +551,95 @@ html[data-theme="dark"] .leaflet-control-attribution a { color: var(--accent); }
 .suggest .s-empty { padding: 12px; font-size: 13.5px; color: var(--text-sub); text-align: center; }
 
 .hint { margin: 7px 0 0; font-size: 12px; color: var(--text-sub); line-height: 1.5; }
+
+/* ---------- 分類の編集 ---------- */
+
+.link-btn.ghost { visibility: hidden; }
+
+.cat-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+
+.cat-row {
+  display: grid;
+  grid-template-columns: 54px 1fr auto;
+  align-items: center;
+  gap: 7px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+.cat-row input {
+  width: 100%;
+  padding: 9px 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.cat-icon-input { text-align: center; font-size: 18px; }
+.cat-tools { display: flex; align-items: center; gap: 2px; }
+.cat-tools button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cat-tools button:active { background: var(--surface-2); }
+.cat-tools button:disabled { opacity: .25; }
+.cat-count {
+  min-width: 26px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-sub);
+}
+
+.cat-add {
+  display: grid;
+  grid-template-columns: 54px 1fr auto;
+  align-items: center;
+  gap: 7px;
+  padding: 8px;
+  border: 1px dashed var(--line);
+  border-radius: 11px;
+}
+.cat-add input {
+  width: 100%;
+  padding: 9px 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.emoji-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 11px;
+}
+.emoji-palette button {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.emoji-palette button:active { background: var(--surface-2); }
 
 .map-pick {
   height: 190px;

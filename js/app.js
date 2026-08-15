@@ -5,8 +5,12 @@
 
   const STORAGE_KEY = 'travel-wishlist.items.v1';
   const CATEGORY_KEY = 'travel-wishlist.categories.v1';
+  const CATEGORY_REV_KEY = 'travel-wishlist.categories.rev';
   const THEME_KEY = 'travel-wishlist.theme';
   const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
+  const NOMINATIM_LOOKUP = 'https://nominatim.openstreetmap.org/lookup';
+  /* Photon は OSM を入力補完向けに索引しなおした検索。部分一致・打ち間違いに強い */
+  const PHOTON = 'https://photon.komoot.io/api/';
 
   const FALLBACK_CATEGORY = 'other';
 
@@ -18,9 +22,16 @@
     { value: 'museum',   label: '博物館・美術館', icon: '🖼️' },
     { value: 'nature',   label: '自然・絶景',   icon: '🏔️' },
     { value: 'park',     label: '公園・庭園',   icon: '🌳' },
+    { value: 'onsen',    label: '温泉',         icon: '♨️' },
+    { value: 'gourmet',  label: 'グルメ',       icon: '🍽️' },
+    { value: 'activity', label: '体験・レジャー', icon: '🎡' },
+    { value: 'shop',     label: 'ショップ・市場', icon: '🛍️' },
     { value: 'city',     label: '街・エリア',   icon: '🏙️' },
     { value: 'other',    label: 'その他',       icon: '📍' },
   ];
+
+  /* 分類の既定値を増やしたときに上げる。既存利用者にも新しい分類を届ける */
+  const CATEGORY_REV = 2;
 
   /* 分類の編集で使うアイコン候補 */
   const EMOJI_CHOICES = [
@@ -150,6 +161,24 @@
       categories = defaultCategories();
     }
     ensureFallbackCategory();
+    migrateCategories();
+  }
+
+  /** 既定の分類を増やしたとき、既存利用者の一覧にも「その他」の手前に足す。
+      利用者が自分で消した分類は、rev を進めた後は復活しない */
+  function migrateCategories() {
+    let rev = 0;
+    try { rev = Number(localStorage.getItem(CATEGORY_REV_KEY)) || 0; } catch { rev = 0; }
+    if (rev >= CATEGORY_REV) return;
+
+    const known = new Set(categories.map((c) => c.value));
+    const added = defaultCategories().filter((c) => !known.has(c.value) && c.value !== FALLBACK_CATEGORY);
+    if (added.length) {
+      const at = categories.findIndex((c) => c.value === FALLBACK_CATEGORY);
+      categories.splice(at < 0 ? categories.length : at, 0, ...added);
+      saveCategories();
+    }
+    try { localStorage.setItem(CATEGORY_REV_KEY, String(CATEGORY_REV)); } catch { /* 無視 */ }
   }
 
   function saveCategories() {
@@ -651,38 +680,70 @@
   function presetMatches(q) {
     const nq = normText(q);
     if (!nq) return [];
-    return (window.SPOT_PRESETS || [])
-      .filter((p) => normText(p.n).includes(nq) || normText(p.k).includes(nq) || normText(p.c).includes(nq))
-      .slice(0, 6)
-      .map((p) => ({
-        source: 'preset',
-        name: p.n,
-        sub: p.c,
-        address: p.c,
-        country: (p.c.split('/')[0] || '').trim(),
-        lat: p.lat,
-        lng: p.lng,
-        category: p.cat,
-        heritage: !!p.whc,
-        hours: '',
-        fee: '',
-        website: '',
-      }));
+    const scored = [];
+    (window.SPOT_PRESETS || []).forEach((p) => {
+      const name = normText(p.n);
+      const key = normText(p.k);
+      const area = normText(p.c);
+      let rank = -1;
+      if (name.startsWith(nq)) rank = 0;
+      else if (name.includes(nq)) rank = 1;
+      else if (key.includes(nq)) rank = 2;
+      else if (area.includes(nq)) rank = 3;
+      if (rank < 0) return;
+      scored.push({ rank, p });
+    });
+    scored.sort((a, b) => a.rank - b.rank || a.p.n.length - b.p.n.length);
+    return scored.slice(0, 8).map(({ p }) => ({
+      source: 'preset',
+      name: p.n,
+      sub: p.c,
+      address: p.c,
+      country: (p.c.split('/')[0] || '').trim(),
+      lat: p.lat,
+      lng: p.lng,
+      category: p.cat,
+      heritage: !!p.whc,
+      hours: '',
+      fee: '',
+      website: '',
+      osm: p.o || '',
+    }));
+  }
+
+  /* OSM の key=value をアプリの分類に落とす。プリセット生成側と同じ規則 */
+  function kvCategory(key, value, name) {
+    const kv = `${key || ''}=${value || ''}`.toLowerCase();
+    const nm = String(name || '');
+    if (/温泉|湯畑|地獄めぐり|砂むし/.test(nm) && !/駅|神社/.test(nm)) return 'onsen';
+    if (/^amenity=(restaurant|cafe|fast_food|food_court|bar|pub|ice_cream|biergarten)$/.test(kv)) return 'gourmet';
+    if (/^shop=(bakery|confectionery|pastry|greengrocer|seafood|deli|coffee|tea|wine|alcohol)$/.test(kv)) return 'gourmet';
+    if (/^amenity=(public_bath|onsen)$/.test(kv) || kv === 'leisure=spa' || kv === 'natural=hot_spring') return 'onsen';
+    // 城は tourism=museum で登録されていることが多いので、先に名称で拾う
+    if (/castle|palace|fort|citadel/.test(kv) || /城$|城跡$|城址$/.test(nm)) return 'castle';
+    if (/^tourism=(theme_park|zoo|aquarium)$/.test(kv)) return 'activity';
+    if (/^leisure=(water_park|sports_centre|amusement_arcade|golf_course|ice_rink|marina|pitch|track)$/.test(kv)) return 'activity';
+    if (/winter_sports|piste|^sport=/.test(kv) || /スキー場$|尾根$|ゲレンデ/.test(nm)) return 'activity';
+    if (/^tourism=(museum|gallery)$/.test(kv) || /^amenity=(arts_centre|theatre)$/.test(kv)) return 'museum';
+    if (kv === 'amenity=place_of_worship' || /(shrine|temple|church|cathedral|monastery|mosque|chapel)/.test(kv)) return 'temple';
+    if (/神社|大社|寺$|寺院|八幡宮|天満宮|神宮|大聖堂/.test(nm)) return 'temple';
+    if (/^historic=(archaeological_site|ruins|monument|memorial|tomb|city_gate)$/.test(kv)) return 'heritage';
+    if (/^(shop|amenity)=(mall|marketplace|department_store|supermarket)$/.test(kv) || /^shop=/.test(kv)) return 'shop';
+    if (/^leisure=(park|garden|nature_reserve)$/.test(kv) || /^tourism=picnic_site$/.test(kv)) return 'park';
+    if (/^(natural|waterway)=/.test(kv) || /^place=(island|islet)$/.test(kv)) return 'nature';
+    if (/volcano|peak|waterfall|bay|glacier|cave|beach|forest|national_park/.test(kv)) return 'nature';
+    if (/滝$|渓谷$|峡$|海岸$|湖$|山$|岳$|砂丘$|池$|棚田$|高原$/.test(nm)) return 'nature';
+    if (/^tourism=(attraction|viewpoint)$/.test(kv)) return 'monument';
+    if (/^(historic|man_made)=/.test(kv) || /monument|memorial|tower|bridge|lighthouse/.test(kv)) return 'monument';
+    if (/^(place|boundary)=/.test(kv) || /city|town|village|suburb|neighbourhood|hamlet|administrative/.test(kv)) return 'city';
+    return 'other';
   }
 
   function osmCategory(r) {
-    const t = `${r.class || ''}/${r.type || ''}`.toLowerCase();
     const et = r.extratags || {};
-    if (/castle|palace|fort|citadel/.test(t)) return 'castle';
-    if (/place_of_worship|temple|shrine|church|cathedral|monastery|mosque|chapel/.test(t)) return 'temple';
-    if (/museum|gallery|artwork/.test(t)) return 'museum';
-    if (/archaeological_site|ruins|city_gate|tomb/.test(t)) return 'heritage';
-    if (/monument|memorial|tower|attraction|viewpoint|bridge|lighthouse/.test(t)) return 'monument';
-    if (/park|garden|zoo|theme_park/.test(t)) return 'park';
-    if (/natural|volcano|peak|waterfall|water|bay|island|glacier|cave|beach|forest|nature_reserve|national_park/.test(t)) return 'nature';
-    if (/city|town|village|suburb|neighbourhood|hamlet|region|state|county|administrative/.test(t)) return 'city';
-    if (et.heritage) return 'heritage';
-    return 'other';
+    const cat = kvCategory(r.class, r.type, (r.namedetails || {}).name || r.display_name || '');
+    if (cat === 'other' && et.heritage) return 'heritage';
+    return cat;
   }
 
   function isWorldHeritage(r) {
@@ -711,7 +772,60 @@
       hours: et.opening_hours || '',
       fee: et.fee === 'no' ? '無料' : (et.charge || ''),
       website: et.website || et['contact:website'] || et.url || '',
+      osm: r.osm_type && r.osm_id ? `${String(r.osm_type)[0].toUpperCase()}${r.osm_id}` : '',
     };
+  }
+
+  /* Photon は入力途中でも部分一致で拾えるので、飲食店や体験施設もヒットしやすい */
+  function photonToSuggestion(f) {
+    const p = (f && f.properties) || {};
+    const coords = ((f && f.geometry) || {}).coordinates || [];
+    const name = String(p.name || '').trim();
+    const area = [p.state, p.city || p.county, p.district, p.street].filter(Boolean).join(' ');
+    return {
+      source: 'photon',
+      name,
+      sub: [p.country, area].filter(Boolean).join(' / '),
+      address: [p.country, p.state, p.city || p.county, p.district, p.street, p.housenumber]
+        .filter(Boolean).join(' '),
+      country: p.country || '',
+      lat: Number(coords[1]),
+      lng: Number(coords[0]),
+      category: kvCategory(p.osm_key, p.osm_value, name),
+      heritage: false,
+      hours: '',
+      fee: '',
+      website: '',
+      osm: p.osm_type && p.osm_id ? `${p.osm_type}${p.osm_id}` : '',
+    };
+  }
+
+  async function searchPhoton(query, signal) {
+    const url = new URL(PHOTON);
+    url.searchParams.set('q', query);
+    url.searchParams.set('limit', '10');
+    url.searchParams.set('lang', 'default');
+    const res = await fetch(url, { signal, headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    return (data.features || [])
+      .map(photonToSuggestion)
+      .filter((s) => s.name && Number.isFinite(s.lat) && Number.isFinite(s.lng));
+  }
+
+  async function searchNominatim(query, signal) {
+    const url = new URL(NOMINATIM);
+    url.searchParams.set('q', query);
+    url.searchParams.set('format', 'jsonv2');
+    url.searchParams.set('addressdetails', '1');
+    url.searchParams.set('extratags', '1');
+    url.searchParams.set('namedetails', '1');
+    url.searchParams.set('limit', '8');
+    url.searchParams.set('accept-language', 'ja');
+    const res = await fetch(url, { signal, headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    return (Array.isArray(data) ? data : []).map(toSuggestion).filter((s) => s.name);
   }
 
   function showSuggest(entries, note) {
@@ -731,7 +845,7 @@
         tag.textContent = '世界遺産';
         n.appendChild(tag);
       }
-      n.appendChild(document.createTextNode(s.name));
+      n.appendChild(document.createTextNode(`${catOf(resolveCategory(s.category)).icon} ${s.name}`));
       const sub = document.createElement('span');
       sub.className = 's-sub';
       sub.textContent = s.sub;
@@ -765,42 +879,62 @@
       return;
     }
 
-    // Nominatim の利用規約に配慮して 600ms のデバウンス（連打しない）
+    // 各サービスの利用規約に配慮して 500ms のデバウンス（連打しない）
     el.searchSpinner.hidden = false;
     searchTimer = setTimeout(async () => {
-      const url = new URL(NOMINATIM);
-      url.searchParams.set('q', query);
-      url.searchParams.set('format', 'jsonv2');
-      url.searchParams.set('addressdetails', '1');
-      url.searchParams.set('extratags', '1');
-      url.searchParams.set('namedetails', '1');
-      url.searchParams.set('limit', '8');
-      url.searchParams.set('accept-language', 'ja');
-
       searchAbort = new AbortController();
+      const signal = searchAbort.signal;
       try {
-        const res = await fetch(url, { signal: searchAbort.signal, headers: { Accept: 'application/json' } });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        const remote = (Array.isArray(data) ? data : []).map(toSuggestion).filter((s) => s.name);
-        searchCache.set(query, remote);
+        // まず Photon。部分一致に強く、飲食店や体験施設まで拾える
+        let remote = [];
+        let reached = false;
+        try {
+          remote = await searchPhoton(query, signal);
+          reached = true;
+        } catch (err) {
+          if (err.name === 'AbortError') return;
+          console.warn('Photon 検索に失敗しました', err);
+        }
+
+        // 取りこぼしたときだけ Nominatim も引く（住所や地名に強い）
+        if (remote.length < 3) {
+          try {
+            remote = merge(remote, await searchNominatim(query, signal));
+            reached = true;
+          } catch (err) {
+            if (err.name === 'AbortError') return;
+            console.warn('Nominatim 検索に失敗しました', err);
+          }
+        }
+
+        if (reached) searchCache.set(query, remote);
         const all = merge(local, remote);
-        showSuggest(all, all.length ? '' : '該当する場所が見つかりませんでした。名称を手入力してもOKです。');
-      } catch (err) {
-        if (err.name === 'AbortError') return;
-        console.warn('検索に失敗しました', err);
-        showSuggest(local, local.length ? '' : 'オフラインのため候補を取得できません。手入力してください。');
+        const note = all.length
+          ? ''
+          : (reached
+            ? '該当する場所が見つかりませんでした。名称を手入力してもOKです。'
+            : 'オフラインのため候補を取得できません。手入力してください。');
+        showSuggest(all.slice(0, 12), note);
       } finally {
         el.searchSpinner.hidden = true;
         searchAbort = null;
       }
-    }, 600);
+    }, 500);
+  }
+
+  /* 同じ場所が別ソースから重複して出るのを防ぐ。
+     名前だけだと別の市にある同名の施設まで消えるので、座標もキーに入れる */
+  function dedupKey(s) {
+    const at = Number.isFinite(s.lat) && Number.isFinite(s.lng)
+      ? `${s.lat.toFixed(2)},${s.lng.toFixed(2)}`
+      : '';
+    return `${normText(s.name)}@${at}`;
   }
 
   function merge(local, remote) {
-    const seen = new Set(local.map((s) => normText(s.name)));
+    const seen = new Set(local.map(dedupKey));
     return local.concat(remote.filter((s) => {
-      const k = normText(s.name);
+      const k = dedupKey(s);
       if (seen.has(k)) return false;
       seen.add(k);
       return true;
@@ -824,29 +958,55 @@
     highlightFilled();
     toast(`「${s.name}」を自動入力しました`);
 
-    // プリセット選択時は、営業時間などを OSM から補完する
-    if (s.source === 'preset') enrichFromOsm(s.name);
+    // 営業時間・公式サイト・世界遺産かどうかは OSM のタグから補う
+    if (!s.hours || !s.website) enrichFromOsm(s);
   }
 
-  async function enrichFromOsm(name) {
+  /** 選んだ地点の詳細タグを取りに行く。OSM ID があれば lookup、なければ名称検索 */
+  async function enrichFromOsm(s) {
+    const nameAtStart = el.name.value;
     try {
-      const url = new URL(NOMINATIM);
-      url.searchParams.set('q', name);
-      url.searchParams.set('format', 'jsonv2');
-      url.searchParams.set('extratags', '1');
-      url.searchParams.set('namedetails', '1');
-      url.searchParams.set('addressdetails', '1');
-      url.searchParams.set('limit', '1');
-      url.searchParams.set('accept-language', 'ja');
-      const res = await fetch(url, { headers: { Accept: 'application/json' } });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (!Array.isArray(data) || !data[0]) return;
-      const s = toSuggestion(data[0]);
-      if (!el.hours.value && s.hours) el.hours.value = s.hours;
-      if (!el.fee.value && s.fee) el.fee.value = s.fee;
-      if (!el.website.value && s.website) el.website.value = s.website;
-      if (s.heritage) el.heritage.checked = true;
+      let record = null;
+
+      if (s.osm && /^[NWR]\d+$/.test(s.osm)) {
+        const url = new URL(NOMINATIM_LOOKUP);
+        url.searchParams.set('osm_ids', s.osm);
+        url.searchParams.set('format', 'jsonv2');
+        url.searchParams.set('extratags', '1');
+        url.searchParams.set('namedetails', '1');
+        url.searchParams.set('addressdetails', '1');
+        url.searchParams.set('accept-language', 'ja');
+        const res = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data[0]) record = data[0];
+        }
+      }
+
+      if (!record) {
+        const url = new URL(NOMINATIM);
+        url.searchParams.set('q', s.name);
+        url.searchParams.set('format', 'jsonv2');
+        url.searchParams.set('extratags', '1');
+        url.searchParams.set('namedetails', '1');
+        url.searchParams.set('addressdetails', '1');
+        url.searchParams.set('limit', '1');
+        url.searchParams.set('accept-language', 'ja');
+        const res = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!Array.isArray(data) || !data[0]) return;
+        record = data[0];
+      }
+
+      // 補完している間に別の候補を選んでいたら、書き戻さない
+      if (el.name.value !== nameAtStart) return;
+
+      const d = toSuggestion(record);
+      if (!el.hours.value && d.hours) el.hours.value = d.hours;
+      if (!el.fee.value && d.fee) el.fee.value = d.fee;
+      if (!el.website.value && d.website) el.website.value = d.website;
+      if (d.heritage) el.heritage.checked = true;
       highlightFilled();
     } catch { /* 補完は失敗しても無視 */ }
   }

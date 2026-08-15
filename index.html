@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<!-- 入力時に画面が拡大しないように maximum-scale=1 を固定。フォームの文字サイズも 16px 以上にしてある -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>行きたい観光地リスト</title>
+<meta name="description" content="行きたい観光地や世界遺産を、営業時間や所在地の地図つきでリスト化できるアプリ">
+<meta name="theme-color" content="#f7f5f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#12151a" media="(prefers-color-scheme: dark)">
+<meta name="format-detection" content="telephone=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="観光地リスト">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
+<link rel="stylesheet" href="js/vendor/leaflet.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="header-inner">
+    <h1 class="logo"><span aria-hidden="true">🗺️</span> 行きたい観光地リスト</h1>
+    <div class="header-actions">
+      <button type="button" id="themeToggle" class="icon-btn" title="テーマ切り替え" aria-label="テーマ切り替え">🌙</button>
+      <div class="menu">
+        <button type="button" id="menuBtn" class="icon-btn" title="メニュー" aria-label="メニュー" aria-haspopup="true" aria-expanded="false">⋯</button>
+        <div class="menu-list" id="menuList" role="menu" hidden>
+          <button type="button" id="exportBtn" role="menuitem">JSONで書き出し</button>
+          <button type="button" id="importBtn" role="menuitem">JSONを読み込み</button>
+          <button type="button" id="sampleBtn" role="menuitem">サンプルを追加</button>
+          <button type="button" id="clearBtn" role="menuitem" class="danger">すべて削除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="表示切り替え">
+    <button type="button" class="tab is-active" id="tabList" role="tab" aria-selected="true">リスト</button>
+    <button type="button" class="tab" id="tabMap" role="tab" aria-selected="false">地図</button>
+  </div>
+</header>
+
+<main>
+  <section id="listView" class="view is-active">
+    <div class="wrap">
+      <div class="stats" aria-label="サマリー">
+        <div class="stat"><span class="stat-value" id="statTotal">0</span><span class="stat-label">登録</span></div>
+        <div class="stat"><span class="stat-value" id="statHeritage">0</span><span class="stat-label">世界遺産</span></div>
+        <div class="stat"><span class="stat-value" id="statVisited">0</span><span class="stat-label">訪問済</span></div>
+        <div class="stat"><span class="stat-value" id="statCountries">0</span><span class="stat-label">国・地域</span></div>
+      </div>
+
+      <div class="toolbar">
+        <input type="search" id="filterText" class="filter-text" placeholder="登録済みから絞り込み…" aria-label="絞り込み">
+        <div class="filter-row">
+          <select id="filterStatus" aria-label="ステータスで絞り込み"></select>
+          <select id="filterCategory" aria-label="カテゴリで絞り込み"></select>
+          <select id="sortBy" aria-label="並び替え">
+            <option value="created">追加順</option>
+            <option value="name">名称順</option>
+            <option value="priority">優先度順</option>
+            <option value="date">訪問予定日順</option>
+          </select>
+        </div>
+        <label class="chk-inline"><input type="checkbox" id="filterHeritage"> 世界遺産のみ</label>
+      </div>
+
+      <ul id="list" class="list"></ul>
+
+      <p id="empty" class="empty" hidden>
+        まだ登録がありません。<br>右下の <strong>＋</strong> から名称を検索して追加してください。
+      </p>
+    </div>
+  </section>
+
+  <section id="mapView" class="view">
+    <div id="map" class="map-full"></div>
+    <button type="button" id="fitBtn" class="map-fit-btn" title="全体を表示">全体表示</button>
+  </section>
+</main>
+
+<button type="button" id="addBtn" class="fab" aria-label="観光地を追加">＋</button>
+
+<!-- 追加・編集ダイアログ -->
+<dialog id="spotDialog" class="dialog">
+  <form id="spotForm" method="dialog">
+    <div class="dialog-head">
+      <button type="button" class="link-btn" id="cancelBtn">キャンセル</button>
+      <h2 id="dialogTitle">観光地を追加</h2>
+      <button type="submit" class="link-btn strong" id="saveBtn">保存</button>
+    </div>
+
+    <div class="dialog-body">
+      <div class="field search-field">
+        <label for="spotSearch">名称で検索（自動入力）</label>
+        <div class="search-wrap">
+          <input type="search" id="spotSearch" placeholder="例）タージ・マハル、姫路城" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+          <span class="search-spinner" id="searchSpinner" hidden></span>
+        </div>
+        <ul id="suggest" class="suggest" hidden role="listbox" aria-label="検索候補"></ul>
+        <p class="hint" id="searchHint">候補をタップすると、名称・所在地・営業時間・地図が自動で入ります。</p>
+      </div>
+
+      <div class="field">
+        <label for="nameInput">名称 <span class="req">必須</span></label>
+        <input type="text" id="nameInput" required maxlength="120" autocomplete="off">
+      </div>
+
+      <div class="field-2">
+        <div class="field">
+          <label for="categoryInput">カテゴリ</label>
+          <select id="categoryInput"></select>
+        </div>
+        <div class="field">
+          <label for="statusInput">ステータス</label>
+          <select id="statusInput"></select>
+        </div>
+      </div>
+
+      <label class="chk-card"><input type="checkbox" id="heritageInput"> <span>UNESCO世界遺産</span></label>
+
+      <div class="field">
+        <label for="addressInput">所在地</label>
+        <input type="text" id="addressInput" maxlength="240" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label for="hoursInput">営業時間・開館時間</label>
+        <input type="text" id="hoursInput" maxlength="200" autocomplete="off" placeholder="例）09:00-17:00（月曜休）">
+      </div>
+
+      <div class="field-2">
+        <div class="field">
+          <label for="feeInput">料金</label>
+          <input type="text" id="feeInput" maxlength="80" autocomplete="off" placeholder="例）1,000円">
+        </div>
+        <div class="field">
+          <label for="priorityInput">優先度</label>
+          <select id="priorityInput"></select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="websiteInput">公式サイト</label>
+        <input type="url" id="websiteInput" maxlength="300" autocomplete="off" inputmode="url" placeholder="https://">
+      </div>
+
+      <div class="field">
+        <label for="visitDateInput">訪問予定日</label>
+        <input type="date" id="visitDateInput">
+      </div>
+
+      <div class="field">
+        <label for="pickMap">所在地（地図をタップ／ピンをドラッグで調整）</label>
+        <div id="pickMap" class="map-pick"></div>
+        <div class="coord-row">
+          <input type="text" id="latInput" inputmode="decimal" placeholder="緯度" aria-label="緯度" autocomplete="off">
+          <input type="text" id="lngInput" inputmode="decimal" placeholder="経度" aria-label="経度" autocomplete="off">
+          <button type="button" id="geoBtn" class="btn btn-sub" title="現在地を使う">現在地</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="noteInput">メモ</label>
+        <textarea id="noteInput" rows="3" maxlength="1000" placeholder="行きたい理由、ベストシーズン、予約メモなど"></textarea>
+      </div>
+
+      <button type="button" id="deleteBtn" class="btn btn-danger wide" hidden>この観光地を削除</button>
+    </div>
+  </form>
+</dialog>
+
+<input type="file" id="importFile" accept="application/json,.json" hidden>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="js/vendor/leaflet.js"></script>
+<script src="js/presets.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

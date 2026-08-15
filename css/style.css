@@ -1,0 +1,564 @@
+/* 行きたい観光地リスト — iPhone のホーム画面追加運用を前提にしたスタイル */
+
+:root {
+  --bg: #f7f5f1;
+  --surface: #ffffff;
+  --surface-2: #f0ede7;
+  --text: #1b1f24;
+  --text-sub: #6b7280;
+  --line: #e0dcd4;
+  --accent: #0e7490;
+  --accent-soft: #e0f2f7;
+  --gold: #a16207;
+  --gold-soft: #fdf3d7;
+  --danger: #b91c1c;
+  --shadow: 0 1px 2px rgba(18, 21, 26, .06), 0 8px 24px rgba(18, 21, 26, .06);
+  --radius: 14px;
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --bg: #12151a;
+  --surface: #1b1f26;
+  --surface-2: #232830;
+  --text: #eef1f5;
+  --text-sub: #9aa4b2;
+  --line: #2d333d;
+  --accent: #38bdf8;
+  --accent-soft: #10303d;
+  --gold: #fbbf24;
+  --gold-soft: #3a2f10;
+  --danger: #f87171;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overscroll-behavior-y: none;
+  /* iOS で文字が勝手に拡大されないように */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  /* ダブルタップによる拡大を無効化 */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* フォーム部品は必ず 16px 以上。iOS はこれ未満だとフォーカス時に自動でズームする */
+input, select, textarea, button {
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.5;
+  color: inherit;
+}
+
+/* ---------- ヘッダー ---------- */
+
+.app-header {
+  flex: none;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--line);
+  padding-top: env(safe-area-inset-top);
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px max(14px, env(safe-area-inset-left)) 6px max(14px, env(safe-area-inset-right));
+}
+
+.logo {
+  flex: 1;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-actions { display: flex; align-items: center; gap: 4px; }
+
+.icon-btn {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.icon-btn:active { background: var(--surface-2); }
+
+.menu { position: relative; }
+
+.menu-list {
+  position: absolute;
+  right: 0;
+  top: 42px;
+  z-index: 60;
+  min-width: 190px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.menu-list button {
+  display: block;
+  width: 100%;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-list button:active { background: var(--surface-2); }
+.menu-list .danger { color: var(--danger); }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 max(14px, env(safe-area-inset-left)) 10px;
+  padding: 3px;
+  background: var(--surface-2);
+  border-radius: 11px;
+}
+.tab {
+  flex: 1;
+  padding: 8px 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font-weight: 600;
+  color: var(--text-sub);
+  cursor: pointer;
+}
+.tab.is-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .12);
+}
+
+/* ---------- ビュー ---------- */
+
+main { flex: 1; position: relative; overflow: hidden; }
+
+.view {
+  position: absolute;
+  inset: 0;
+  display: none;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.view.is-active { display: block; }
+#mapView.is-active { overflow: hidden; }
+
+.wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 12px max(14px, env(safe-area-inset-left)) calc(110px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-right));
+}
+
+/* ---------- サマリー ---------- */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.stat-value { font-size: 20px; font-weight: 700; line-height: 1.2; }
+.stat-label { font-size: 11px; color: var(--text-sub); }
+
+/* ---------- 絞り込み ---------- */
+
+.toolbar { display: grid; gap: 8px; margin-bottom: 14px; }
+
+.filter-text, .filter-row select, .coord-row input {
+  width: 100%;
+  padding: 11px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.filter-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.filter-row select { padding: 11px 8px; }
+
+.chk-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-sub);
+}
+.chk-inline input { width: 20px; height: 20px; accent-color: var(--accent); }
+
+/* ---------- リスト ---------- */
+
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+
+.card {
+  position: relative;
+  padding: 13px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.card.is-visited { opacity: .72; }
+
+.card-head { display: flex; align-items: flex-start; gap: 10px; }
+.card-title {
+  flex: 1;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.card.is-visited .card-title { text-decoration: line-through; text-decoration-color: var(--text-sub); }
+
+.badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--text-sub);
+  white-space: nowrap;
+}
+.badge.heritage { background: var(--gold-soft); color: var(--gold); }
+.badge.status-want { background: var(--accent-soft); color: var(--accent); }
+.badge.status-planned { background: #ede9fe; color: #6d28d9; }
+.badge.status-visited { background: #dcfce7; color: #15803d; }
+.badge.prio-high { background: #fee2e2; color: #b91c1c; }
+html[data-theme="dark"] .badge.status-planned { background: #2a2447; color: #c4b5fd; }
+html[data-theme="dark"] .badge.status-visited { background: #16311f; color: #86efac; }
+html[data-theme="dark"] .badge.prio-high { background: #3b1a1a; color: #fca5a5; }
+
+.meta { margin: 9px 0 0; display: grid; gap: 4px; font-size: 13.5px; color: var(--text-sub); }
+.meta div { display: flex; gap: 7px; }
+.meta .ico { flex: none; width: 17px; text-align: center; }
+.meta a { color: var(--accent); word-break: break-all; }
+.note {
+  margin: 9px 0 0;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border-radius: 9px;
+  font-size: 13.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.card-actions { display: flex; gap: 8px; margin-top: 11px; }
+.card-actions .btn { flex: 1; }
+
+.btn {
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn:active { background: var(--surface-2); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-sub { font-size: 14px; white-space: nowrap; }
+.btn-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
+.btn.wide { width: 100%; padding: 13px; margin-top: 6px; }
+
+.empty {
+  margin: 40px 0;
+  text-align: center;
+  color: var(--text-sub);
+  font-size: 14.5px;
+  line-height: 2;
+}
+
+/* ---------- 地図 ---------- */
+
+.map-full { position: absolute; inset: 0; background: var(--surface-2); }
+
+.map-fit-btn {
+  position: absolute;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: calc(env(safe-area-inset-bottom) + 92px);
+  z-index: 500;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+
+.pin {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  border: 2px solid #fff;
+  border-radius: 50% 50% 50% 6px;
+  transform: rotate(-45deg);
+  background: var(--accent);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+  font-size: 14px;
+}
+.pin span { transform: rotate(45deg); }
+.pin.heritage { background: #b45309; }
+.pin.visited { background: #16a34a; }
+
+.leaflet-container { font: inherit; background: var(--surface-2); }
+.leaflet-popup-content { margin: 10px 12px; font-size: 14px; }
+.leaflet-popup-content b { font-size: 15px; }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--text); }
+.leaflet-bar a { background: var(--surface); color: var(--text); border-bottom-color: var(--line); }
+.leaflet-bar a:hover { background: var(--surface-2); color: var(--text); }
+.leaflet-control-attribution { font-size: 10px; }
+html[data-theme="dark"] .leaflet-control-attribution { background: rgba(27, 31, 38, .8); color: var(--text-sub); }
+html[data-theme="dark"] .leaflet-control-attribution a { color: var(--accent); }
+
+/* ---------- FAB ---------- */
+
+.fab {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: calc(env(safe-area-inset-bottom) + 20px);
+  z-index: 700;
+  width: 58px;
+  height: 58px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 30px;
+  font-weight: 300;
+  line-height: 1;
+  box-shadow: 0 6px 18px rgba(14, 116, 144, .38);
+  cursor: pointer;
+}
+.fab:active { transform: scale(.94); }
+
+/* ---------- ダイアログ ---------- */
+
+.dialog {
+  width: 100%;
+  max-width: 560px;
+  max-height: 92dvh;
+  margin: auto auto 0;
+  padding: 0;
+  border: 0;
+  border-radius: 18px 18px 0 0;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+@media (min-width: 620px) {
+  .dialog { margin: auto; border-radius: 18px; max-height: 88dvh; }
+}
+.dialog::backdrop { background: rgba(0, 0, 0, .45); }
+
+.dialog form { display: flex; flex-direction: column; max-height: 92dvh; }
+
+.dialog-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.dialog-head h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 700; text-align: center; }
+
+.link-btn {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  padding: 4px 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.link-btn.strong { font-weight: 700; }
+
+.dialog-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 14px calc(20px + env(safe-area-inset-bottom));
+  display: grid;
+  gap: 13px;
+}
+
+.field { display: grid; gap: 5px; }
+.field-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field label { font-size: 13px; font-weight: 600; color: var(--text-sub); }
+.req { margin-left: 4px; color: var(--danger); font-weight: 500; }
+
+.field input, .field select, .field textarea {
+  width: 100%;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.field textarea { resize: vertical; min-height: 76px; }
+.field input:focus, .field select:focus, .field textarea:focus,
+.filter-text:focus, .filter-row select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.field input[type="date"] { min-height: 46px; }
+
+.field.auto-filled input { border-color: var(--accent); background: var(--accent-soft); }
+
+.chk-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  font-size: 15px;
+}
+.chk-card input { width: 22px; height: 22px; accent-color: var(--gold); }
+
+.search-field { padding: 12px; background: var(--accent-soft); border-radius: 13px; }
+.search-field label { color: var(--accent); }
+.search-wrap { position: relative; }
+.search-wrap input {
+  width: 100%;
+  padding: 12px 40px 12px 12px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 11px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.search-spinner {
+  position: absolute;
+  right: 13px;
+  top: 50%;
+  width: 17px;
+  height: 17px;
+  margin-top: -9px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.suggest {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+.suggest li { border-radius: 8px; }
+.suggest button {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.suggest button:active { background: var(--surface-2); }
+.suggest .s-name { display: block; font-size: 15px; font-weight: 600; }
+.suggest .s-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--text-sub);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.suggest .s-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--gold-soft);
+  color: var(--gold);
+}
+.suggest .s-empty { padding: 12px; font-size: 13.5px; color: var(--text-sub); text-align: center; }
+
+.hint { margin: 7px 0 0; font-size: 12px; color: var(--text-sub); line-height: 1.5; }
+
+.map-pick {
+  height: 190px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.coord-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-top: 8px; }
+.coord-row input { font-size: 16px; }
+
+/* ---------- トースト ---------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 92px);
+  z-index: 900;
+  transform: translateX(-50%);
+  max-width: 90vw;
+  padding: 11px 18px;
+  border-radius: 999px;
+  background: rgba(24, 28, 34, .93);
+  color: #fff;
+  font-size: 14px;
+  box-shadow: var(--shadow);
+}

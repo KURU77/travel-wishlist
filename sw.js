@@ -1,6 +1,6 @@
 /* Service Worker — ホーム画面に追加してオフラインでも開けるようにする */
 /* アプリを更新したらこの値を上げる。古いキャッシュを捨てて確実に新しい版を配る */
-const VERSION = 'v4';
+const VERSION = 'v5';
 const SHELL_CACHE = `travel-wishlist-shell-${VERSION}`;
 /* タイルのキャッシュ名はバージョンを付けない。アプリを更新しても
    利用者がダウンロードした地図を消さないため */
@@ -59,8 +59,10 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(req.url);
 
-  // 検索API はキャッシュしない（常に最新を取りに行く）
+  // 検索API と利用人数カウンタはキャッシュしない（常に最新を取りに行く）
   if (url.hostname.endsWith('nominatim.openstreetmap.org')) return;
+  if (url.hostname.endsWith('photon.komoot.io')) return;
+  if (url.hostname.endsWith('abacus.jasoncameron.dev')) return;
 
   // 地図タイルはキャッシュ優先。一度見た範囲と、明示的に保存した範囲はオフラインでも表示できる
   if (url.hostname.endsWith('tile.openstreetmap.org')) {

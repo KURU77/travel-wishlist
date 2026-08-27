@@ -12,6 +12,14 @@
   /* Photon は OSM を入力補完向けに索引しなおした検索。部分一致・打ち間違いに強い */
   const PHOTON = 'https://photon.komoot.io/api/';
 
+  /* 利用人数カウンタ（Abacus）。端末ごとに初回だけ +1 し、以降は読むだけ。
+     登録した観光地の情報は一切送らない */
+  const COUNTER_BASE = 'https://abacus.jasoncameron.dev';
+  const COUNTER_NS = 'tw-kuru77-4a7e2b91';
+  const COUNTED_KEY = 'travel-wishlist.counted.v1';
+  const IS_DEV = /^(localhost|127.0.0.1|[::1])$/.test(location.hostname) || location.protocol === 'file:';
+  const COUNTER_KEY = IS_DEV ? 'users-dev' : 'users';
+
   const FALLBACK_CATEGORY = 'other';
 
   const DEFAULT_CATEGORIES = [
@@ -109,6 +117,7 @@
     homeRecent: $('#homeRecent'),
     homeRecentSec: $('#homeRecentSec'),
     homeEmpty: $('#homeEmpty'),
+    userCount: $('#userCount'),
     statBtnTotal: $('#statBtnTotal'),
     statBtnHeritage: $('#statBtnHeritage'),
     statBtnVisited: $('#statBtnVisited'),
@@ -1383,6 +1392,41 @@
     fillSection(el.homeRecentSec, el.homeRecent, recent);
   }
 
+  // ---------- 利用人数のカウント ----------
+
+  /** 端末ごとに初回起動のときだけ +1 し、以降は読み取りのみ。
+      失敗・オフライン時は何も表示しない（アプリの動作には影響させない） */
+  async function countUsers() {
+    let first = false;
+    try { first = !localStorage.getItem(COUNTED_KEY); } catch { first = false; }
+
+    try {
+      const res = await fetch(`${COUNTER_BASE}/${first ? 'hit' : 'get'}/${COUNTER_NS}/${COUNTER_KEY}`, {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const n = Number(data && data.value);
+      if (!Number.isFinite(n) || n <= 0) return;
+
+      if (first) {
+        try { localStorage.setItem(COUNTED_KEY, '1'); } catch { /* 保存できなくても表示はする */ }
+      }
+      showUserCount(n);
+    } catch {
+      /* カウンタは飾りなので、つながらなければ黙って出さない */
+    }
+  }
+
+  function showUserCount(n) {
+    el.userCount.textContent = '';
+    const strong = document.createElement('b');
+    strong.textContent = n.toLocaleString('ja-JP');
+    el.userCount.append('これまで ', strong, ' 人がこのアプリを使っています');
+    el.userCount.hidden = false;
+  }
+
   // ---------- 分類の編集 ----------
 
   let paletteTarget = null;
@@ -1875,6 +1919,7 @@
     render();
     updateOnlineBadge();
     showView('home');
+    countUsers();
 
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
       window.addEventListener('load', () => {

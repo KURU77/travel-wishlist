@@ -851,3 +851,15 @@ button.stat:active { background: var(--surface-2); }
 .area-row.is-visited .mini-name { text-decoration: line-through; color: var(--text-sub); }
 .area-actions { display: flex; gap: 7px; padding: 4px 0 0; }
 .area-actions .btn { flex: 1; font-size: 13px; padding: 8px; }
+
+/* ---------- 利用人数（ホーム最下部にさりげなく） ---------- */
+
+.user-count {
+  margin: 28px 0 0;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-sub);
+  letter-spacing: .01em;
+}
+.user-count b { font-weight: 700; color: var(--text); }

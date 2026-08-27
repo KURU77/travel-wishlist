@@ -5,3 +5,6 @@ node_modules/
 *.log
 .vscode/
 .idea/
+
+# Abacus カウンタの管理キー（公開しない）
+.counter-admin-keys.txt

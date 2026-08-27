@@ -53,6 +53,25 @@
     { value: 'low',  label: '低', weight: 2 },
   ];
 
+  /* 日本の地方区分。エリア別ページと、トップページの絞り込みに使う */
+  const REGIONS = [
+    { key: 'hokkaido', label: '北海道', prefs: ['北海道'] },
+    { key: 'tohoku',   label: '東北',   prefs: ['青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県'] },
+    { key: 'kanto',    label: '関東',   prefs: ['茨城県', '栃木県', '群馬県', '埼玉県', '千葉県', '東京都', '神奈川県'] },
+    { key: 'chubu',    label: '中部',   prefs: ['新潟県', '富山県', '石川県', '福井県', '山梨県', '長野県', '岐阜県', '静岡県', '愛知県'] },
+    { key: 'kinki',    label: '近畿',   prefs: ['三重県', '滋賀県', '京都府', '大阪府', '兵庫県', '奈良県', '和歌山県'] },
+    { key: 'chugoku',  label: '中国',   prefs: ['鳥取県', '島根県', '岡山県', '広島県', '山口県'] },
+    { key: 'shikoku',  label: '四国',   prefs: ['徳島県', '香川県', '愛媛県', '高知県'] },
+    { key: 'kyushu',   label: '九州・沖縄', prefs: ['福岡県', '佐賀県', '長崎県', '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県'] },
+  ];
+  const ALL_PREFS = REGIONS.flatMap((r) => r.prefs);
+  const PREF_RE = new RegExp(ALL_PREFS.join('|'));
+  const PREF_INDEX = new Map(ALL_PREFS.map((p, i) => [p, i]));
+  const PREF_REGION = new Map();
+  REGIONS.forEach((r) => r.prefs.forEach((p) => PREF_REGION.set(p, r)));
+  const REGION_INDEX = new Map(REGIONS.map((r, i) => [r.key, i]));
+  const OVERSEAS = { key: 'overseas', label: '海外' };
+
   /* 編集で書き換わるので、既定値は必ず複製して渡す */
   const defaultCategories = () => DEFAULT_CATEGORIES.map((c) => ({ ...c }));
 
@@ -70,10 +89,34 @@
     statHeritage: $('#statHeritage'),
     statVisited: $('#statVisited'),
     statCountries: $('#statCountries'),
+    tabHome: $('#tabHome'),
     tabList: $('#tabList'),
+    tabArea: $('#tabArea'),
     tabMap: $('#tabMap'),
+    homeView: $('#homeView'),
     listView: $('#listView'),
+    areaView: $('#areaView'),
     mapView: $('#mapView'),
+    quickGrid: $('#quickGrid'),
+    homeUpcoming: $('#homeUpcoming'),
+    homeUpcomingSec: $('#homeUpcomingSec'),
+    homePriority: $('#homePriority'),
+    homePrioritySec: $('#homePrioritySec'),
+    homeAreas: $('#homeAreas'),
+    homeAreaSec: $('#homeAreaSec'),
+    homeCats: $('#homeCats'),
+    homeCatSec: $('#homeCatSec'),
+    homeRecent: $('#homeRecent'),
+    homeRecentSec: $('#homeRecentSec'),
+    homeEmpty: $('#homeEmpty'),
+    statBtnTotal: $('#statBtnTotal'),
+    statBtnHeritage: $('#statBtnHeritage'),
+    statBtnVisited: $('#statBtnVisited'),
+    statBtnAreas: $('#statBtnAreas'),
+    areaGroupBy: $('#areaGroupBy'),
+    areaHideVisited: $('#areaHideVisited'),
+    areaList: $('#areaList'),
+    areaEmpty: $('#areaEmpty'),
     fitBtn: $('#fitBtn'),
     addBtn: $('#addBtn'),
     dialog: $('#spotDialog'),
@@ -336,6 +379,8 @@
 
     renderStats();
     renderMarkers();
+    renderHome();
+    renderArea();
   }
 
   function renderStats() {
@@ -520,17 +565,37 @@
   }
 
   function showView(which) {
-    const isMap = which === 'map';
-    el.listView.classList.toggle('is-active', !isMap);
-    el.mapView.classList.toggle('is-active', isMap);
-    el.tabList.classList.toggle('is-active', !isMap);
-    el.tabMap.classList.toggle('is-active', isMap);
-    el.tabList.setAttribute('aria-selected', String(!isMap));
-    el.tabMap.setAttribute('aria-selected', String(isMap));
-    if (isMap) {
+    const views = {
+      home: [el.homeView, el.tabHome],
+      list: [el.listView, el.tabList],
+      area: [el.areaView, el.tabArea],
+      map: [el.mapView, el.tabMap],
+    };
+    const target = views[which] ? which : 'home';
+    Object.keys(views).forEach((key) => {
+      const [view, tab] = views[key];
+      const on = key === target;
+      view.classList.toggle('is-active', on);
+      tab.classList.toggle('is-active', on);
+      tab.setAttribute('aria-selected', String(on));
+    });
+    if (target === 'map') {
       ensureMap();
       setTimeout(() => map.invalidateSize(), 50);
+    } else {
+      views[target][0].scrollTop = 0;
     }
+  }
+
+  /** トップページやエリアページから、条件つきでリストへ移動する */
+  function jumpToList(filter) {
+    const f = filter || {};
+    el.filterText.value = f.text || '';
+    el.filterStatus.value = f.status || '';
+    el.filterCategory.value = f.category || '';
+    el.filterHeritage.checked = !!f.heritage;
+    render();
+    showView('list');
   }
 
   // ---------- オフライン用の地図保存 ----------
@@ -1018,6 +1083,306 @@
     });
   }
 
+  // ---------- エリア（地域・都道府県）の判定 ----------
+
+  /** 所在地の文字列から都道府県を拾う。保存済みのデータにも後付けで効く */
+  function prefOf(it) {
+    const m = String(it.address || '').match(PREF_RE);
+    return m ? m[0] : '';
+  }
+
+  function countryOf(it) {
+    const c = String(it.country || '').trim();
+    if (c) return c;
+    if (prefOf(it)) return '日本';
+    const a = String(it.address || '').trim();
+    if (!a) return '未設定';
+    if (a.includes('/')) return a.split('/')[0].trim() || '未設定';
+    const parts = a.split(/[,、]/).map((x) => x.trim()).filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : '未設定';
+  }
+
+  function areaOf(it) {
+    const pref = prefOf(it);
+    if (pref) {
+      const r = PREF_REGION.get(pref);
+      return { regionKey: r.key, regionLabel: r.label, pref, country: '日本' };
+    }
+    const country = countryOf(it);
+    if (country === '日本') {
+      return { regionKey: 'jp-other', regionLabel: '日本（都道府県が不明）', pref: '', country };
+    }
+    return { regionKey: OVERSEAS.key, regionLabel: OVERSEAS.label, pref: '', country };
+  }
+
+  /** 所在地の短い表示。「滋賀県 近江八幡市」「イタリア」など */
+  function areaLabelOf(it) {
+    const a = areaOf(it);
+    if (!a.pref) return a.country;
+    const rest = String(it.address || '').split(a.pref)[1] || '';
+    const city = (rest.match(/[^\s/,、]+[市区町村郡]/) || [])[0] || '';
+    return city ? `${a.pref} ${city}` : a.pref;
+  }
+
+  function areaGroups(mode, list) {
+    const map = new Map();
+    list.forEach((it) => {
+      const a = areaOf(it);
+      let key;
+      let label;
+      if (mode === 'pref') { key = a.pref || a.country; label = key; }
+      else if (mode === 'country') { key = a.country; label = key; }
+      else { key = a.regionKey; label = a.regionLabel; }
+      if (!map.has(key)) map.set(key, { key, label, items: [] });
+      map.get(key).items.push(it);
+    });
+
+    const rank = (g) => {
+      if (mode === 'pref') {
+        const i = PREF_INDEX.get(g.key);
+        return i === undefined ? 1000 : i;
+      }
+      if (mode === 'country') return g.key === '日本' ? -1 : 1000;
+      const i = REGION_INDEX.get(g.key);
+      return i === undefined ? 1000 : i;
+    };
+
+    return Array.from(map.values())
+      .sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label, 'ja'));
+  }
+
+  // ---------- エリア別ページ ----------
+
+  function renderArea() {
+    const mode = el.areaGroupBy.value || 'region';
+    const list = el.areaHideVisited.checked ? items.filter((i) => i.status !== 'visited') : items;
+    const groups = areaGroups(mode, list);
+
+    // 開いていたグループは開いたままにする
+    const first = el.areaList.childElementCount === 0;
+    const opened = new Set(Array.from(el.areaList.querySelectorAll('details[open]')).map((d) => d.dataset.key));
+
+    el.areaList.innerHTML = '';
+    groups.forEach((g) => el.areaList.appendChild(areaGroupEl(g, first || opened.has(g.key))));
+    el.areaEmpty.hidden = groups.length > 0;
+  }
+
+  function areaGroupEl(group, open) {
+    const details = document.createElement('details');
+    details.className = 'area-group';
+    details.dataset.key = group.key;
+    details.open = !!open;
+
+    const summary = document.createElement('summary');
+    const name = document.createElement('span');
+    name.className = 'area-name';
+    name.textContent = group.label;
+    const count = document.createElement('span');
+    count.className = 'area-count';
+    count.textContent = `${group.items.length}件`;
+    summary.append(name, count);
+
+    const done = group.items.filter((i) => i.status === 'visited').length;
+    if (done) {
+      const d = document.createElement('span');
+      d.className = 'area-done';
+      d.textContent = `訪問済 ${done}`;
+      summary.appendChild(d);
+    }
+    details.appendChild(summary);
+
+    const body = document.createElement('div');
+    body.className = 'area-body';
+    group.items
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, 'ja'))
+      .forEach((it) => body.appendChild(areaRow(it)));
+
+    const withPin = group.items.filter((i) => Number.isFinite(i.lat) && Number.isFinite(i.lng));
+    if (withPin.length) {
+      const actions = document.createElement('div');
+      actions.className = 'area-actions';
+      actions.appendChild(actionBtn('この範囲を地図で見る', () => focusGroupOnMap(withPin)));
+      body.appendChild(actions);
+    }
+
+    details.appendChild(body);
+    return details;
+  }
+
+  function areaRow(it) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'area-row' + (it.status === 'visited' ? ' is-visited' : '');
+
+    const ico = document.createElement('span');
+    ico.className = 'mini-ico';
+    ico.textContent = catOf(it.category).icon;
+
+    const bodyEl = document.createElement('span');
+    bodyEl.className = 'mini-body';
+    const nm = document.createElement('span');
+    nm.className = 'mini-name';
+    nm.textContent = (it.heritage ? '🏛 ' : '') + it.name;
+    const sub = document.createElement('span');
+    sub.className = 'mini-sub';
+    sub.textContent = [areaLabelOf(it), it.hours].filter(Boolean).join('・');
+    bodyEl.append(nm, sub);
+
+    const tail = document.createElement('span');
+    tail.className = 'mini-tail';
+    tail.textContent = labelOf(STATUSES, it.status);
+
+    b.append(ico, bodyEl, tail);
+    b.addEventListener('click', () => openDialog(it.id));
+    return b;
+  }
+
+  function focusGroupOnMap(list) {
+    showView('map');
+    setTimeout(() => {
+      ensureMap();
+      map.invalidateSize();
+      const pts = list.map((i) => [i.lat, i.lng]);
+      if (pts.length === 1) map.setView(pts[0], 13, { animate: false });
+      else map.fitBounds(L.latLngBounds(pts).pad(0.2));
+    }, 60);
+  }
+
+  function gotoArea(key, mode) {
+    el.areaGroupBy.value = mode || 'region';
+    renderArea();
+    showView('area');
+    const target = Array.from(el.areaList.querySelectorAll('details')).find((d) => d.dataset.key === key);
+    if (!target) return;
+    target.open = true;
+    setTimeout(() => target.scrollIntoView({ block: 'start', behavior: 'smooth' }), 40);
+  }
+
+  // ---------- トップページ ----------
+
+  function todayStr() {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+
+  const QUICK_ACTIONS = [
+    { icon: '＋', label: '場所を追加', accent: true, run: () => openDialog(null) },
+    { icon: '🗺️', label: '地図で見る', run: () => showView('map') },
+    { icon: '🗾', label: 'エリア別', run: () => showView('area') },
+    { icon: '🏛️', label: '世界遺産', run: () => jumpToList({ heritage: true }) },
+    { icon: '📝', label: '計画中', run: () => jumpToList({ status: 'planned' }) },
+    { icon: '✅', label: '訪問済', run: () => jumpToList({ status: 'visited' }) },
+  ];
+
+  function buildQuickGrid() {
+    el.quickGrid.innerHTML = '';
+    QUICK_ACTIONS.forEach((q) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'quick' + (q.accent ? ' accent' : '');
+      const i = document.createElement('span');
+      i.className = 'quick-ico';
+      i.setAttribute('aria-hidden', 'true');
+      i.textContent = q.icon;
+      const l = document.createElement('span');
+      l.className = 'quick-label';
+      l.textContent = q.label;
+      b.append(i, l);
+      b.addEventListener('click', q.run);
+      el.quickGrid.appendChild(b);
+    });
+  }
+
+  function miniRow(it, tailText) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'mini';
+
+    const ico = document.createElement('span');
+    ico.className = 'mini-ico';
+    ico.textContent = catOf(it.category).icon;
+
+    const bodyEl = document.createElement('span');
+    bodyEl.className = 'mini-body';
+    const nm = document.createElement('span');
+    nm.className = 'mini-name';
+    nm.textContent = it.name;
+    const sub = document.createElement('span');
+    sub.className = 'mini-sub';
+    sub.textContent = areaLabelOf(it);
+    bodyEl.append(nm, sub);
+
+    const tail = document.createElement('span');
+    tail.className = 'mini-tail';
+    tail.textContent = tailText || '';
+
+    b.append(ico, bodyEl, tail);
+    b.addEventListener('click', () => openDialog(it.id));
+    return b;
+  }
+
+  function chip(label, count, onClick) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip';
+    b.appendChild(document.createTextNode(label));
+    const c = document.createElement('span');
+    c.className = 'chip-count';
+    c.textContent = count;
+    b.appendChild(c);
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  function fillSection(sec, host, rows) {
+    host.innerHTML = '';
+    rows.forEach((r) => host.appendChild(r));
+    sec.hidden = rows.length === 0;
+  }
+
+  function renderHome() {
+    el.homeEmpty.hidden = items.length > 0;
+    const today = todayStr();
+
+    // 次の予定（今日以降の訪問予定日）
+    const upcoming = items
+      .filter((i) => i.visitDate && i.visitDate >= today && i.status !== 'visited')
+      .sort((a, b) => a.visitDate.localeCompare(b.visitDate))
+      .slice(0, 4)
+      .map((it) => miniRow(it, formatDate(it.visitDate).replace(/^\d+年/, '')));
+    fillSection(el.homeUpcomingSec, el.homeUpcoming, upcoming);
+
+    // 優先度が高い（未訪問のみ）
+    const priority = items
+      .filter((i) => i.priority === 'high' && i.status !== 'visited')
+      .slice(0, 4)
+      .map((it) => miniRow(it, labelOf(STATUSES, it.status)));
+    fillSection(el.homePrioritySec, el.homePriority, priority);
+
+    // エリアから探す
+    const areaChips = areaGroups('region', items)
+      .map((g) => chip(g.label, g.items.length, () => gotoArea(g.key, 'region')));
+    fillSection(el.homeAreaSec, el.homeAreas, areaChips);
+
+    // 分類から探す
+    const counts = new Map();
+    items.forEach((i) => counts.set(i.category, (counts.get(i.category) || 0) + 1));
+    const catChips = categories
+      .filter((c) => counts.get(c.value))
+      .map((c) => chip(`${c.icon} ${c.label}`, counts.get(c.value), () => jumpToList({ category: c.value })));
+    fillSection(el.homeCatSec, el.homeCats, catChips);
+
+    // 最近追加した場所
+    const recent = items
+      .slice()
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 4)
+      .map((it) => miniRow(it, labelOf(STATUSES, it.status)));
+    fillSection(el.homeRecentSec, el.homeRecent, recent);
+  }
+
   // ---------- 分類の編集 ----------
 
   let paletteTarget = null;
@@ -1369,8 +1734,19 @@
   // ---------- 初期化 ----------
 
   function bind() {
+    el.tabHome.addEventListener('click', () => showView('home'));
     el.tabList.addEventListener('click', () => showView('list'));
+    el.tabArea.addEventListener('click', () => showView('area'));
     el.tabMap.addEventListener('click', () => showView('map'));
+
+    // サマリーの数字もクイックアクセスにする
+    el.statBtnTotal.addEventListener('click', () => jumpToList({}));
+    el.statBtnHeritage.addEventListener('click', () => jumpToList({ heritage: true }));
+    el.statBtnVisited.addEventListener('click', () => jumpToList({ status: 'visited' }));
+    el.statBtnAreas.addEventListener('click', () => { el.areaGroupBy.value = 'country'; renderArea(); showView('area'); });
+
+    el.areaGroupBy.addEventListener('change', renderArea);
+    el.areaHideVisited.addEventListener('change', renderArea);
     el.fitBtn.addEventListener('click', () => { ensureMap(); map.invalidateSize(); fitAll(); });
 
     el.addBtn.addEventListener('click', () => openDialog(null));
@@ -1495,8 +1871,10 @@
     fillCategorySelects();
     load();
     bind();
+    buildQuickGrid();
     render();
     updateOnlineBadge();
+    showView('home');
 
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
       window.addEventListener('load', () => {

@@ -43,21 +43,74 @@
   </div>
 
   <div class="tabs" role="tablist" aria-label="表示切り替え">
-    <button type="button" class="tab is-active" id="tabList" role="tab" aria-selected="true">リスト</button>
+    <button type="button" class="tab is-active" id="tabHome" role="tab" aria-selected="true">ホーム</button>
+    <button type="button" class="tab" id="tabList" role="tab" aria-selected="false">リスト</button>
+    <button type="button" class="tab" id="tabArea" role="tab" aria-selected="false">エリア</button>
     <button type="button" class="tab" id="tabMap" role="tab" aria-selected="false">地図</button>
   </div>
 </header>
 
 <main>
-  <section id="listView" class="view is-active">
+  <section id="homeView" class="view is-active">
     <div class="wrap">
+
       <div class="stats" aria-label="サマリー">
-        <div class="stat"><span class="stat-value" id="statTotal">0</span><span class="stat-label">登録</span></div>
-        <div class="stat"><span class="stat-value" id="statHeritage">0</span><span class="stat-label">世界遺産</span></div>
-        <div class="stat"><span class="stat-value" id="statVisited">0</span><span class="stat-label">訪問済</span></div>
-        <div class="stat"><span class="stat-value" id="statCountries">0</span><span class="stat-label">国・地域</span></div>
+        <button type="button" class="stat" id="statBtnTotal"><span class="stat-value" id="statTotal">0</span><span class="stat-label">登録</span></button>
+        <button type="button" class="stat" id="statBtnHeritage"><span class="stat-value" id="statHeritage">0</span><span class="stat-label">世界遺産</span></button>
+        <button type="button" class="stat" id="statBtnVisited"><span class="stat-value" id="statVisited">0</span><span class="stat-label">訪問済</span></button>
+        <button type="button" class="stat" id="statBtnAreas"><span class="stat-value" id="statCountries">0</span><span class="stat-label">国・地域</span></button>
       </div>
 
+      <div class="quick-grid" id="quickGrid"></div>
+
+      <section class="home-sec" id="homeUpcomingSec" hidden>
+        <h2 class="home-h">📅 次の予定</h2>
+        <div class="mini-list" id="homeUpcoming"></div>
+      </section>
+
+      <section class="home-sec" id="homePrioritySec" hidden>
+        <h2 class="home-h">⭐ 優先度が高い</h2>
+        <div class="mini-list" id="homePriority"></div>
+      </section>
+
+      <section class="home-sec" id="homeAreaSec" hidden>
+        <h2 class="home-h">🗾 エリアから探す</h2>
+        <div class="chips" id="homeAreas"></div>
+      </section>
+
+      <section class="home-sec" id="homeCatSec" hidden>
+        <h2 class="home-h">🗂️ 分類から探す</h2>
+        <div class="chips" id="homeCats"></div>
+      </section>
+
+      <section class="home-sec" id="homeRecentSec" hidden>
+        <h2 class="home-h">🕒 最近追加した場所</h2>
+        <div class="mini-list" id="homeRecent"></div>
+      </section>
+
+      <p id="homeEmpty" class="empty" hidden>
+        まだ登録がありません。<br>右下の <strong>＋</strong> から名称を検索して追加してください。
+      </p>
+    </div>
+  </section>
+
+  <section id="areaView" class="view">
+    <div class="wrap">
+      <div class="area-head">
+        <select id="areaGroupBy" aria-label="まとめ方">
+          <option value="region">地域別（関東・近畿…）</option>
+          <option value="pref">都道府県別</option>
+          <option value="country">国・地域別</option>
+        </select>
+        <label class="chk-inline"><input type="checkbox" id="areaHideVisited"> 訪問済を隠す</label>
+      </div>
+      <div id="areaList" class="area-list"></div>
+      <p id="areaEmpty" class="empty" hidden>表示できる場所がありません。</p>
+    </div>
+  </section>
+
+  <section id="listView" class="view">
+    <div class="wrap">
       <div class="toolbar">
         <input type="search" id="filterText" class="filter-text" placeholder="登録済みから絞り込み…" aria-label="絞り込み">
         <div class="filter-row">

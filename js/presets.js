@@ -4,7 +4,7 @@
    手元で作り直すときは: node tools/build-presets.mjs
 
    n: 名称 / k: 検索キー / c: 所在地 / lat,lng: 座標
-   cat: 分類 / whc: 世界遺産 / o: OSM ID   （全406件） */
+   cat: 分類 / whc: 世界遺産 / o: OSM ID   （全404件） */
 window.SPOT_PRESETS = [
   { n: '姫路城', k: 'ひめじじょう himeji castle 白鷺城', c: '日本 / 兵庫県姫路市', lat: 34.8394, lng: 134.6939, cat: 'castle', whc: true },
   { n: '原爆ドーム', k: 'げんばくどーむ atomic bomb dome', c: '日本 / 広島県広島市', lat: 34.3955, lng: 132.4536, cat: 'monument', whc: true },
@@ -137,7 +137,7 @@ window.SPOT_PRESETS = [
   { n: '日光東照宮', k: '日光東照宮 日光市 栃木県 place_of_worship', c: '日本 / 栃木県 日光市', lat: 36.75764, lng: 139.59911, cat: 'temple', whc: true, o: 'W388017091' },
   { n: '那須ハイランドパーク', k: '那須ハイランドパーク 那須町 栃木県 theme_park', c: '日本 / 栃木県 那須町', lat: 37.06524, lng: 139.96428, cat: 'activity', whc: false, o: 'W539165026' },
   { n: '華厳の滝', k: '華厳の滝 日光市 栃木県 viewpoint', c: '日本 / 栃木県 日光市', lat: 36.73823, lng: 139.5036, cat: 'nature', whc: false, o: 'N4921465854' },
-  { n: 'あしかがフラワーパーク', k: 'あしかがフラワーパーク 足利市 栃木県 garden', c: '日本 / 栃木県 足利市', lat: 36.31381, lng: 139.51984, cat: 'park', whc: false, o: 'W140209690' },
+  { n: 'あしかがフラワーパーク', k: 'あしかがフラワーパーク おおふじ 大藤 イルミネーション 足利市 栃木県', c: '日本 / 栃木県 足利市', lat: 36.31381, lng: 139.51984, cat: 'park', whc: false, o: 'W140209690' },
   { n: '大谷資料館', k: '大谷資料館 宇都宮市 栃木県 museum', c: '日本 / 栃木県 宇都宮市', lat: 36.59996, lng: 139.82475, cat: 'museum', whc: false, o: 'W372455746' },
   { n: '鬼怒川温泉', k: '鬼怒川温泉駅 日光市 栃木県 bus_station', c: '日本 / 栃木県 日光市', lat: 36.82371, lng: 139.71689, cat: 'onsen', whc: false, o: 'W428686787' },
   { n: '那須どうぶつ王国', k: '那須どうぶつ王国 那須町 栃木県 theme_park', c: '日本 / 栃木県 那須町', lat: 37.13205, lng: 140.04041, cat: 'activity', whc: false, o: 'W618195200' },
@@ -410,6 +410,4 @@ window.SPOT_PRESETS = [
   { n: '豊洲市場', k: '豊洲市場(7街区) 江東区 東京都 marketplace', c: '日本 / 東京都 江東区', lat: 35.64215, lng: 139.78272, cat: 'shop', whc: false, o: 'W436183396' },
   { n: '高尾山', k: '高尾山 東京都 peak', c: '日本 / 東京都', lat: 35.62523, lng: 139.24369, cat: 'nature', whc: false, o: 'N675449030' },
   { n: '浅草寺', k: '金龍山浅草寺 台東区 東京都 place_of_worship', c: '日本 / 東京都 台東区', lat: 35.7134, lng: 139.79553, cat: 'temple', whc: false, o: 'W173154847' },
-  { n: '金沢おでん', k: 'かなざわおでん 郷土料理 金沢市 石川県', c: '日本 / 石川県 金沢市', lat: 36.5613, lng: 136.6562, cat: 'gourmet', whc: false },
-  { n: 'あしかがフラワーパーク 大藤', k: 'おおふじ イルミネーション 足利市 栃木県', c: '日本 / 栃木県 足利市', lat: 36.31439, lng: 139.5205, cat: 'park', whc: false },
 ];

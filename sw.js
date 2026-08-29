@@ -1,6 +1,6 @@
 /* Service Worker — ホーム画面に追加してオフラインでも開けるようにする */
 /* アプリを更新したらこの値を上げる。古いキャッシュを捨てて確実に新しい版を配る */
-const VERSION = 'v10';
+const VERSION = 'v11';
 const SHELL_CACHE = `travel-wishlist-shell-${VERSION}`;
 /* タイルのキャッシュ名はバージョンを付けない。アプリを更新しても
    利用者がダウンロードした地図を消さないため */
@@ -29,11 +29,18 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(SHELL_CACHE)
-      .then((cache) => cache.addAll(SHELL))
-      .then(() => self.skipWaiting()),
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(SHELL_CACHE);
+    // cache.addAll はブラウザの HTTP キャッシュを使うため、GitHub Pages の
+    // max-age が生きている間は古いファイルを取り込んでしまう。
+    // cache: 'reload' で必ずサーバーから取り直す
+    await Promise.all(SHELL.map(async (url) => {
+      const res = await fetch(url, { cache: 'reload' });
+      if (!res.ok) throw new Error(`${url} の取得に失敗しました (${res.status})`);
+      await cache.put(url, res);
+    }));
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (event) => {

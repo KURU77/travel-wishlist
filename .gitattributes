@@ -1,0 +1,4 @@
+# 行末は LF に統一する。Windows と Actions の両方で編集するため、
+# 混在すると差分もスクリプトでの書き換えも不安定になる
+* text=auto eol=lf
+*.png binary

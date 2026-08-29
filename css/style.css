@@ -863,3 +863,85 @@ button.stat:active { background: var(--surface-2); }
   letter-spacing: .01em;
 }
 .user-count b { font-weight: 700; color: var(--text); }
+
+/* ---------- 開発者モード（プリセット編集） ---------- */
+
+.dev-badge {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #7c2d12;
+  color: #fed7aa;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  white-space: nowrap;
+}
+html[data-theme="dark"] .dev-badge { background: #fed7aa; color: #7c2d12; }
+
+.dev-tag {
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: #7c2d12;
+  color: #fed7aa;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  vertical-align: 2px;
+}
+
+.dev-summary {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-sub);
+}
+
+.dev-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.dev-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.dev-row:active { background: var(--surface-2); }
+.dev-row .mini-sub { font-variant-numeric: tabular-nums; }
+
+.dev-state {
+  flex: none;
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 800;
+  color: transparent;
+}
+.dev-state.is-edited {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.dev-state.is-added {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #15803d;
+}
+html[data-theme="dark"] .dev-state.is-added { background: #16311f; color: #86efac; }
+
+.dev-actions { display: grid; gap: 8px; margin-top: 18px; }
+.dev-actions .btn.wide { margin-top: 0; }

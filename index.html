@@ -26,11 +26,13 @@
   <div class="header-inner">
     <h1 class="logo"><span aria-hidden="true">🗺️</span> 行きたい観光地リスト</h1>
     <span id="offlineBadge" class="offline-badge" hidden>オフライン</span>
+    <span id="devBadge" class="dev-badge" hidden title="開発モード">DEV</span>
     <div class="header-actions">
       <button type="button" id="themeToggle" class="icon-btn" title="テーマ切り替え" aria-label="テーマ切り替え">🌙</button>
       <div class="menu">
         <button type="button" id="menuBtn" class="icon-btn" title="メニュー" aria-label="メニュー" aria-haspopup="true" aria-expanded="false">⋯</button>
         <div class="menu-list" id="menuList" role="menu" hidden>
+          <button type="button" id="devPresetBtn" role="menuitem" hidden>🛠 プリセットを編集</button>
           <button type="button" id="editCatBtn" role="menuitem">分類を編集</button>
           <button type="button" id="offlineBtn" role="menuitem">地図をオフライン保存</button>
           <button type="button" id="exportBtn" role="menuitem">JSONで書き出し</button>
@@ -233,6 +235,98 @@
   </form>
 </dialog>
 
+<!-- 開発者用: プリセット一覧（通常は入口が隠れている） -->
+<dialog id="devDialog" class="dialog">
+  <form id="devForm" method="dialog">
+    <div class="dialog-head">
+      <button type="button" class="link-btn" id="devCloseBtn">閉じる</button>
+      <h2>プリセット編集 <span class="dev-tag">DEV</span></h2>
+      <button type="button" class="link-btn strong" id="devNewBtn">＋ 新規</button>
+    </div>
+
+    <div class="dialog-body">
+      <p class="dev-summary" id="devSummary"></p>
+      <input type="search" id="devFilter" class="filter-text" placeholder="プリセットを絞り込み…" aria-label="プリセットを絞り込み" autocomplete="off">
+      <ul id="devList" class="dev-list"></ul>
+      <p class="hint" id="devMore" hidden></p>
+
+      <div class="dev-actions">
+        <button type="button" class="btn btn-primary wide" id="devExportBtn">presets.js を書き出す</button>
+        <button type="button" class="btn wide" id="devCopyBtn">presets.js をコピー</button>
+        <button type="button" class="btn wide" id="devOverlayExportBtn">上書き分をJSONで書き出し</button>
+        <button type="button" class="btn wide" id="devOverlayImportBtn">上書き分のJSONを読み込み</button>
+        <button type="button" class="btn btn-danger wide" id="devResetBtn">上書きをすべて破棄</button>
+        <button type="button" class="btn wide" id="devExitBtn">開発モードを終了</button>
+      </div>
+      <p class="hint">編集内容はこの端末の中だけに保存されます。全員に反映するには presets.js を書き出して Git にコミットしてください。</p>
+    </div>
+  </form>
+</dialog>
+
+<!-- 開発者用: プリセット1件の編集 -->
+<dialog id="presetDialog" class="dialog">
+  <form id="presetForm" method="dialog">
+    <div class="dialog-head">
+      <button type="button" class="link-btn" id="presetCancelBtn">戻る</button>
+      <h2 id="presetTitle">プリセットを編集</h2>
+      <button type="submit" class="link-btn strong">保存</button>
+    </div>
+
+    <div class="dialog-body">
+      <div class="field search-field">
+        <label for="presetSearch">場所を検索して自動入力</label>
+        <div class="search-wrap">
+          <input type="search" id="presetSearch" placeholder="例）金沢21世紀美術館" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+          <span class="search-spinner" id="presetSpinner" hidden></span>
+        </div>
+        <ul id="presetSuggest" class="suggest" hidden role="listbox" aria-label="検索候補"></ul>
+      </div>
+
+      <div class="field">
+        <label for="pName">名称 <span class="req">必須</span></label>
+        <input type="text" id="pName" required maxlength="120" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label for="pKeys">検索キー</label>
+        <input type="text" id="pKeys" maxlength="240" autocomplete="off" placeholder="よみ 別名 市区町村 都道府県">
+        <p class="hint">ここに入れた語でも検索に引っかかります。スペース区切り。</p>
+      </div>
+
+      <div class="field">
+        <label for="pArea">所在地</label>
+        <input type="text" id="pArea" maxlength="120" autocomplete="off" placeholder="日本 / 石川県 金沢市">
+        <p class="hint">「日本 / 都道府県 市区町村」の形にすると、エリア別ページで正しく分類されます。</p>
+      </div>
+
+      <div class="field-2">
+        <div class="field">
+          <label for="pCat">分類</label>
+          <select id="pCat"></select>
+        </div>
+        <div class="field">
+          <label for="pOsm">OSM ID</label>
+          <input type="text" id="pOsm" maxlength="24" autocomplete="off" placeholder="W123456">
+        </div>
+      </div>
+
+      <label class="chk-card"><input type="checkbox" id="pWhc"> <span>UNESCO世界遺産</span></label>
+
+      <div class="field">
+        <label for="pMap">座標（地図をタップ／ピンをドラッグ）</label>
+        <div id="pMap" class="map-pick"></div>
+        <div class="coord-row">
+          <input type="text" id="pLat" inputmode="decimal" placeholder="緯度" aria-label="緯度" autocomplete="off">
+          <input type="text" id="pLng" inputmode="decimal" placeholder="経度" aria-label="経度" autocomplete="off">
+        </div>
+      </div>
+
+      <button type="button" class="btn btn-danger wide" id="pDeleteBtn" hidden>このプリセットを削除</button>
+      <button type="button" class="btn wide" id="pRevertBtn" hidden>編集を取り消して元に戻す</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- 分類の編集ダイアログ -->
 <dialog id="catDialog" class="dialog">
   <form id="catForm" method="dialog">
@@ -261,6 +355,7 @@
 </dialog>
 
 <input type="file" id="importFile" accept="application/json,.json" hidden>
+<input type="file" id="devImportFile" accept="application/json,.json" hidden>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="js/vendor/leaflet.js"></script>

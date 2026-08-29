@@ -118,6 +118,40 @@
     homeRecentSec: $('#homeRecentSec'),
     homeEmpty: $('#homeEmpty'),
     userCount: $('#userCount'),
+    logo: document.querySelector('.logo'),
+    devBadge: $('#devBadge'),
+    devPresetBtn: $('#devPresetBtn'),
+    devDialog: $('#devDialog'),
+    devSummary: $('#devSummary'),
+    devFilter: $('#devFilter'),
+    devList: $('#devList'),
+    devMore: $('#devMore'),
+    devNewBtn: $('#devNewBtn'),
+    devCloseBtn: $('#devCloseBtn'),
+    devExportBtn: $('#devExportBtn'),
+    devCopyBtn: $('#devCopyBtn'),
+    devOverlayExportBtn: $('#devOverlayExportBtn'),
+    devOverlayImportBtn: $('#devOverlayImportBtn'),
+    devImportFile: $('#devImportFile'),
+    devResetBtn: $('#devResetBtn'),
+    devExitBtn: $('#devExitBtn'),
+    presetDialog: $('#presetDialog'),
+    presetForm: $('#presetForm'),
+    presetTitle: $('#presetTitle'),
+    presetCancelBtn: $('#presetCancelBtn'),
+    presetSearch: $('#presetSearch'),
+    presetSuggest: $('#presetSuggest'),
+    presetSpinner: $('#presetSpinner'),
+    pName: $('#pName'),
+    pKeys: $('#pKeys'),
+    pArea: $('#pArea'),
+    pCat: $('#pCat'),
+    pOsm: $('#pOsm'),
+    pWhc: $('#pWhc'),
+    pLat: $('#pLat'),
+    pLng: $('#pLng'),
+    pDeleteBtn: $('#pDeleteBtn'),
+    pRevertBtn: $('#pRevertBtn'),
     statBtnTotal: $('#statBtnTotal'),
     statBtnHeritage: $('#statBtnHeritage'),
     statBtnVisited: $('#statBtnVisited'),
@@ -315,6 +349,11 @@
 
     fillSelect(el.category, opts);
     fillSelect(el.filterCategory, opts, { value: '', label: 'すべての分類' });
+    if (el.pCat) {
+      const curPreset = el.pCat.value;
+      fillSelect(el.pCat, opts);
+      el.pCat.value = resolveCategory(curPreset);
+    }
 
     el.category.value = resolveCategory(cur);
     el.filterCategory.value = categories.some((c) => c.value === curFilter) ? curFilter : '';
@@ -755,7 +794,7 @@
     const nq = normText(q);
     if (!nq) return [];
     const scored = [];
-    (window.SPOT_PRESETS || []).forEach((p) => {
+    activePresets().forEach((p) => {
       const name = normText(p.n);
       const key = normText(p.k);
       const area = normText(p.c);
@@ -1392,6 +1431,555 @@
     fillSection(el.homeRecentSec, el.homeRecent, recent);
   }
 
+  // ---------- 開発者モード（プリセットの編集・追加） ----------
+  //
+  // 静的サイトなので本当のアクセス制御は作れない。ここでやっているのは
+  //   1. 入口を隠す（?dev=1 かタイトル7連打）— 一般利用者は辿り着かない
+  //   2. 編集はこの端末の localStorage にだけ持つ — 他人には一切影響しない
+  //   3. 全員に反映するには presets.js を書き出して Git にコミットする
+  // で、3 の push 権限が実質的な「開発者だけ」の担保になっている。
+
+  const DEV_KEY = 'travel-wishlist.dev';
+  const OVERLAY_KEY = 'travel-wishlist.presets.overlay.v1';
+  const DEV_TAPS_NEEDED = 7;
+
+  let devMode = false;
+  /** @type {{v:number, edited:Object<string,object>, added:object[], removed:string[]}} */
+  let overlay = { v: 1, edited: {}, added: [], removed: [] };
+  let presetCache = null;
+
+  function emptyOverlay() {
+    return { v: 1, edited: {}, added: [], removed: [] };
+  }
+
+  function loadOverlay() {
+    try {
+      const raw = localStorage.getItem(OVERLAY_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      overlay = parsed && typeof parsed === 'object' ? normalizeOverlay(parsed) : emptyOverlay();
+    } catch (err) {
+      console.error('プリセットの上書きを読み込めませんでした', err);
+      overlay = emptyOverlay();
+    }
+    presetCache = null;
+  }
+
+  function normalizeOverlay(o) {
+    return {
+      v: 1,
+      edited: o.edited && typeof o.edited === 'object' ? o.edited : {},
+      added: Array.isArray(o.added) ? o.added.map(normalizePreset).filter((p) => p.n) : [],
+      removed: Array.isArray(o.removed) ? o.removed.map(String) : [],
+    };
+  }
+
+  function normalizePreset(raw) {
+    const o = raw && typeof raw === 'object' ? raw : {};
+    const lat = Number(o.lat);
+    const lng = Number(o.lng);
+    return {
+      n: String(o.n || '').trim(),
+      k: String(o.k || '').trim(),
+      c: String(o.c || '').trim(),
+      lat: Number.isFinite(lat) ? Number(lat.toFixed(5)) : 0,
+      lng: Number.isFinite(lng) ? Number(lng.toFixed(5)) : 0,
+      cat: resolveCategory(o.cat),
+      whc: !!o.whc,
+      o: String(o.o || '').trim(),
+    };
+  }
+
+  function saveOverlay() {
+    try {
+      localStorage.setItem(OVERLAY_KEY, JSON.stringify(overlay));
+    } catch (err) {
+      console.error('プリセットの上書きを保存できませんでした', err);
+      toast('保存できませんでした');
+    }
+    presetCache = null;
+  }
+
+  function overlayCount() {
+    return Object.keys(overlay.edited).length + overlay.added.length + overlay.removed.length;
+  }
+
+  /** 検索やサンプル追加が実際に使うプリセット一覧（基本データ＋この端末の上書き） */
+  function activePresets() {
+    if (presetCache) return presetCache;
+    const base = window.SPOT_PRESETS || [];
+    const removed = new Set(overlay.removed);
+    const list = [];
+    base.forEach((p) => {
+      if (removed.has(p.n)) return;
+      list.push(overlay.edited[p.n] ? { ...p, ...overlay.edited[p.n] } : p);
+    });
+    presetCache = list.concat(overlay.added);
+    return presetCache;
+  }
+
+  // ---- 開発モードの出入り ----
+
+  function enableDev(quiet) {
+    devMode = true;
+    try { localStorage.setItem(DEV_KEY, '1'); } catch { /* 保存できなくても今回は有効 */ }
+    applyDevVisibility();
+    if (!quiet) toast('開発モードをオンにしました');
+  }
+
+  function disableDev() {
+    devMode = false;
+    try { localStorage.removeItem(DEV_KEY); } catch { /* 無視 */ }
+    applyDevVisibility();
+    toast('開発モードをオフにしました');
+  }
+
+  function applyDevVisibility() {
+    el.devBadge.hidden = !devMode;
+    el.devPresetBtn.hidden = !devMode;
+  }
+
+  /** タイトルを続けて7回タップでも入れるようにする（iPhone で URL を打たずに済むように） */
+  function setupDevGesture() {
+    let taps = 0;
+    let timer = 0;
+    el.logo.addEventListener('click', () => {
+      if (devMode) return;
+      taps += 1;
+      clearTimeout(timer);
+      timer = setTimeout(() => { taps = 0; }, 2500);
+      if (taps >= DEV_TAPS_NEEDED) {
+        taps = 0;
+        enableDev();
+      }
+    });
+  }
+
+  function initDev() {
+    loadOverlay();
+    try { devMode = localStorage.getItem(DEV_KEY) === '1'; } catch { devMode = false; }
+
+    try {
+      const params = new URLSearchParams(location.search);
+      if (params.get('dev') === '1') {
+        enableDev(true);
+        // URL に ?dev=1 を残さない
+        params.delete('dev');
+        const q = params.toString();
+        history.replaceState(null, '', location.pathname + (q ? '?' + q : '') + location.hash);
+      }
+    } catch { /* URL が扱えない環境では無視 */ }
+
+    applyDevVisibility();
+    setupDevGesture();
+  }
+
+  // ---- プリセット一覧ダイアログ ----
+
+  const DEV_LIST_LIMIT = 60;
+
+  function openDevDialog() {
+    if (!devMode) return;
+    el.devFilter.value = '';
+    renderDevList();
+    el.devDialog.showModal();
+  }
+
+  function presetState(p) {
+    if (overlay.added.includes(p)) return 'added';
+    const base = (window.SPOT_PRESETS || []).find((b) => b.n === p.n);
+    if (base && overlay.edited[base.n]) return 'edited';
+    return '';
+  }
+
+  function renderDevList() {
+    const q = normText(el.devFilter.value);
+    const all = activePresets();
+    const hits = q
+      ? all.filter((p) => normText(p.n).includes(q) || normText(p.k).includes(q) || normText(p.c).includes(q))
+      : all;
+
+    el.devList.innerHTML = '';
+    hits.slice(0, DEV_LIST_LIMIT).forEach((p) => el.devList.appendChild(devRow(p)));
+
+    el.devMore.hidden = hits.length <= DEV_LIST_LIMIT;
+    if (!el.devMore.hidden) {
+      el.devMore.textContent = `他 ${hits.length - DEV_LIST_LIMIT} 件。絞り込んでください。`;
+    }
+
+    const removed = overlay.removed.length;
+    el.devSummary.textContent = `全 ${all.length} 件`
+      + `（編集 ${Object.keys(overlay.edited).length} / 追加 ${overlay.added.length} / 削除 ${removed}）`
+      + (q ? ` — 該当 ${hits.length} 件` : '');
+  }
+
+  function devRow(p) {
+    const li = document.createElement('li');
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'dev-row';
+
+    const ico = document.createElement('span');
+    ico.className = 'mini-ico';
+    ico.textContent = catOf(resolveCategory(p.cat)).icon;
+
+    const body = document.createElement('span');
+    body.className = 'mini-body';
+    const nm = document.createElement('span');
+    nm.className = 'mini-name';
+    nm.textContent = (p.whc ? '🏛 ' : '') + p.n;
+    const sub = document.createElement('span');
+    sub.className = 'mini-sub';
+    sub.textContent = `${p.c}　${p.lat}, ${p.lng}`;
+    body.append(nm, sub);
+
+    const state = presetState(p);
+    const tail = document.createElement('span');
+    tail.className = 'dev-state' + (state ? ' is-' + state : '');
+    tail.textContent = state === 'added' ? '追加' : (state === 'edited' ? '編集' : '');
+
+    b.append(ico, body, tail);
+    b.addEventListener('click', () => openPresetDialog(p));
+    li.appendChild(b);
+    return li;
+  }
+
+  // ---- 1件の編集ダイアログ ----
+
+  let editingPreset = null;      // 編集中のプリセット（新規なら null）
+  let editingBaseName = '';      // 上書きのキーになる、元データ上の名称
+  let pMap = null;
+  let pMarker = null;
+
+  function ensurePresetMap() {
+    if (pMap) return pMap;
+    pMap = L.map('pMap', { zoomControl: true, attributionControl: false }).setView([35.68, 139.76], 2);
+    L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19, crossOrigin: 'anonymous' }).addTo(pMap);
+    pMap.on('click', (e) => setPresetPoint(e.latlng.lat, e.latlng.lng, false));
+    return pMap;
+  }
+
+  function setPresetPoint(lat, lng, recenter) {
+    const m = ensurePresetMap();
+    el.pLat.value = Number(lat).toFixed(5);
+    el.pLng.value = Number(lng).toFixed(5);
+    if (!pMarker) {
+      pMarker = L.marker([lat, lng], { draggable: true }).addTo(m);
+      pMarker.on('dragend', () => {
+        const q = pMarker.getLatLng();
+        el.pLat.value = q.lat.toFixed(5);
+        el.pLng.value = q.lng.toFixed(5);
+      });
+    } else {
+      pMarker.setLatLng([lat, lng]);
+    }
+    if (recenter) m.setView([lat, lng], Math.max(m.getZoom(), 13), { animate: false });
+  }
+
+  function clearPresetPoint() {
+    if (pMarker && pMap) { pMap.removeLayer(pMarker); pMarker = null; }
+    el.pLat.value = '';
+    el.pLng.value = '';
+  }
+
+  function openPresetDialog(preset) {
+    editingPreset = preset || null;
+    const isNew = !preset;
+
+    // 上書きのキーは「元データ上の名称」。編集で改名しても対応が崩れないようにする
+    if (isNew) {
+      editingBaseName = '';
+    } else {
+      const base = (window.SPOT_PRESETS || []).find((b) => b.n === preset.n
+        || (overlay.edited[b.n] && overlay.edited[b.n].n === preset.n));
+      editingBaseName = base ? base.n : '';
+    }
+
+    el.presetTitle.textContent = isNew ? 'プリセットを追加' : 'プリセットを編集';
+    el.presetSearch.value = '';
+    el.presetSuggest.hidden = true;
+    el.presetSuggest.innerHTML = '';
+
+    el.pName.value = isNew ? '' : preset.n;
+    el.pKeys.value = isNew ? '' : (preset.k || '');
+    el.pArea.value = isNew ? '' : (preset.c || '');
+    el.pCat.value = resolveCategory(isNew ? 'other' : preset.cat);
+    el.pOsm.value = isNew ? '' : (preset.o || '');
+    el.pWhc.checked = isNew ? false : !!preset.whc;
+
+    el.pDeleteBtn.hidden = isNew;
+    el.pRevertBtn.hidden = isNew || !editingBaseName || !overlay.edited[editingBaseName];
+
+    el.presetDialog.showModal();
+
+    setTimeout(() => {
+      const m = ensurePresetMap();
+      m.invalidateSize();
+      clearPresetPoint();
+      if (!isNew && Number.isFinite(preset.lat) && Number.isFinite(preset.lng)) {
+        setPresetPoint(preset.lat, preset.lng, true);
+      } else {
+        m.setView([35, 137], 4, { animate: false });
+      }
+    }, 60);
+  }
+
+  function savePreset(ev) {
+    ev.preventDefault();
+    const lat = parseFloat(el.pLat.value);
+    const lng = parseFloat(el.pLng.value);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      toast('座標を入れてください');
+      return;
+    }
+
+    const next = normalizePreset({
+      n: el.pName.value,
+      k: el.pKeys.value,
+      c: el.pArea.value,
+      lat,
+      lng,
+      cat: el.pCat.value,
+      whc: el.pWhc.checked,
+      o: el.pOsm.value,
+    });
+    if (!next.n) { toast('名称を入れてください'); return; }
+
+    if (!editingPreset) {
+      overlay.added.push(next);
+    } else if (editingBaseName) {
+      overlay.edited[editingBaseName] = next;
+    } else {
+      // 上書きではなく、この端末で追加したものを編集した場合
+      const i = overlay.added.indexOf(editingPreset);
+      if (i >= 0) overlay.added[i] = next;
+      else overlay.added.push(next);
+    }
+
+    saveOverlay();
+    renderDevList();
+    el.presetDialog.close();
+    toast(editingPreset ? 'プリセットを更新しました' : 'プリセットを追加しました');
+  }
+
+  function deletePreset() {
+    if (!editingPreset) return;
+    if (!confirm(`プリセット「${editingPreset.n}」を削除しますか？`)) return;
+
+    const i = overlay.added.indexOf(editingPreset);
+    if (i >= 0) {
+      overlay.added.splice(i, 1);
+    } else if (editingBaseName) {
+      overlay.removed.push(editingBaseName);
+      delete overlay.edited[editingBaseName];
+    }
+    saveOverlay();
+    renderDevList();
+    el.presetDialog.close();
+    toast('削除しました');
+  }
+
+  function revertPreset() {
+    if (!editingBaseName || !overlay.edited[editingBaseName]) return;
+    delete overlay.edited[editingBaseName];
+    saveOverlay();
+    renderDevList();
+    el.presetDialog.close();
+    toast('元のデータに戻しました');
+  }
+
+  // ---- 編集ダイアログ内の検索（Photon → OSM lookup） ----
+
+  let presetSearchTimer = 0;
+  let presetSearchAbort = null;
+
+  function runPresetSearch(q) {
+    const query = q.trim();
+    clearTimeout(presetSearchTimer);
+    if (presetSearchAbort) { presetSearchAbort.abort(); presetSearchAbort = null; }
+    if (!query) { el.presetSuggest.hidden = true; return; }
+
+    el.presetSpinner.hidden = false;
+    presetSearchTimer = setTimeout(async () => {
+      presetSearchAbort = new AbortController();
+      try {
+        let hits = await searchPhoton(query, presetSearchAbort.signal);
+        if (hits.length < 3) hits = merge(hits, await searchNominatim(query, presetSearchAbort.signal));
+        showPresetSuggest(hits.slice(0, 10));
+      } catch (err) {
+        if (err.name !== 'AbortError') console.warn('検索に失敗しました', err);
+      } finally {
+        el.presetSpinner.hidden = true;
+        presetSearchAbort = null;
+      }
+    }, 500);
+  }
+
+  function showPresetSuggest(hits) {
+    el.presetSuggest.innerHTML = '';
+    el.presetSuggest.hidden = hits.length === 0;
+    hits.forEach((s) => {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      const n = document.createElement('span');
+      n.className = 's-name';
+      n.textContent = `${catOf(resolveCategory(s.category)).icon} ${s.name}`;
+      const sub = document.createElement('span');
+      sub.className = 's-sub';
+      sub.textContent = `${s.sub}　${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`;
+      b.append(n, sub);
+      b.addEventListener('click', () => applyPresetSuggestion(s));
+      li.appendChild(b);
+      el.presetSuggest.appendChild(li);
+    });
+  }
+
+  /** 検索結果から、プリセットの各項目をできるだけ埋める */
+  function applyPresetSuggestion(s) {
+    el.pName.value = s.name;
+    el.pCat.value = resolveCategory(s.category);
+    el.pOsm.value = s.osm || '';
+    if (s.heritage) el.pWhc.checked = true;
+
+    // 所在地は「日本 / 都道府県 市区町村」に整える
+    const fake = { address: s.address, country: s.country };
+    const pref = prefOf(fake);
+    if (pref) {
+      const rest = String(s.address || '').split(pref)[1] || '';
+      const city = (rest.match(/[^\s/,、]+[市区町村郡]/) || [])[0] || '';
+      el.pArea.value = `日本 / ${pref}${city ? ' ' + city : ''}`;
+      el.pKeys.value = [s.name, city, pref].filter(Boolean).join(' ');
+    } else {
+      const country = countryOf(fake);
+      el.pArea.value = country;
+      el.pKeys.value = [s.name, country].filter(Boolean).join(' ');
+    }
+
+    if (Number.isFinite(s.lat) && Number.isFinite(s.lng)) setPresetPoint(s.lat, s.lng, true);
+
+    el.presetSuggest.hidden = true;
+    el.presetSearch.value = '';
+    el.presetSearch.blur();
+    toast(`「${s.name}」を読み込みました`);
+  }
+
+  // ---- 書き出し・読み込み ----
+
+  function presetsFileText() {
+    const list = activePresets();
+    const esc = (v) => String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const line = (p) => `  { n: '${esc(p.n)}', k: '${esc(p.k)}', c: '${esc(p.c)}', `
+      + `lat: ${p.lat}, lng: ${p.lng}, cat: '${esc(p.cat)}', whc: ${!!p.whc}`
+      + `${p.o ? `, o: '${esc(p.o)}'` : ''} },`;
+
+    return [
+      '/* 内蔵プリセット — オフラインでも候補が出るように、有名な観光地・世界遺産・体験施設・グルメを収録',
+      '   n: 名称 / k: 読み・別名・所在地（検索用） / c: 所在地 / lat,lng: 座標',
+      '   cat: 分類 / whc: 世界遺産 / o: OSM ID（営業時間などの取得に使う）',
+      `   計${list.length}件。アプリの開発モード（プリセット編集）から書き出したもの */`,
+      'window.SPOT_PRESETS = [',
+      ...list.map(line),
+      '];',
+      '',
+    ].join('\n');
+  }
+
+  async function shareText(text, filename, type) {
+    const file = new File([text], filename, { type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: filename });
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function copyPresets() {
+    const text = presetsFileText();
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(`presets.js をコピーしました（${text.length.toLocaleString('ja-JP')} 文字）`);
+    } catch (err) {
+      console.warn('クリップボードに書けませんでした', err);
+      toast('コピーできませんでした。書き出しを使ってください');
+    }
+  }
+
+  function importOverlay(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        overlay = normalizeOverlay(parsed);
+        saveOverlay();
+        renderDevList();
+        toast(`上書き ${overlayCount()} 件を読み込みました`);
+      } catch (err) {
+        console.error(err);
+        toast('読み込めませんでした');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function resetOverlay() {
+    if (!overlayCount()) { toast('上書きはありません'); return; }
+    if (!confirm(`プリセットの上書き ${overlayCount()} 件をすべて破棄しますか？`)) return;
+    overlay = emptyOverlay();
+    saveOverlay();
+    renderDevList();
+    toast('上書きを破棄しました');
+  }
+
+  function bindDev() {
+    el.devPresetBtn.addEventListener('click', () => { el.menuList.hidden = true; openDevDialog(); });
+    el.devCloseBtn.addEventListener('click', () => el.devDialog.close());
+    el.devNewBtn.addEventListener('click', () => openPresetDialog(null));
+    el.devFilter.addEventListener('input', renderDevList);
+
+    el.devExportBtn.addEventListener('click', () => shareText(presetsFileText(), 'presets.js', 'text/javascript'));
+    el.devCopyBtn.addEventListener('click', copyPresets);
+    el.devOverlayExportBtn.addEventListener('click', () => shareText(
+      JSON.stringify(overlay, null, 2), 'presets-overlay.json', 'application/json',
+    ));
+    el.devOverlayImportBtn.addEventListener('click', () => el.devImportFile.click());
+    el.devImportFile.addEventListener('change', () => {
+      const f = el.devImportFile.files && el.devImportFile.files[0];
+      if (f) importOverlay(f);
+      el.devImportFile.value = '';
+    });
+    el.devResetBtn.addEventListener('click', resetOverlay);
+    el.devExitBtn.addEventListener('click', () => { el.devDialog.close(); disableDev(); });
+
+    el.presetForm.addEventListener('submit', savePreset);
+    el.presetCancelBtn.addEventListener('click', () => el.presetDialog.close());
+    el.pDeleteBtn.addEventListener('click', deletePreset);
+    el.pRevertBtn.addEventListener('click', revertPreset);
+    el.presetSearch.addEventListener('input', () => runPresetSearch(el.presetSearch.value));
+    el.presetSearch.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); runPresetSearch(el.presetSearch.value); }
+    });
+    el.pLat.addEventListener('change', syncPresetCoords);
+    el.pLng.addEventListener('change', syncPresetCoords);
+  }
+
+  function syncPresetCoords() {
+    const lat = parseFloat(el.pLat.value);
+    const lng = parseFloat(el.pLng.value);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) setPresetPoint(lat, lng, true);
+    else clearPresetPoint();
+  }
+
   // ---------- 利用人数のカウント ----------
 
   /** 端末ごとに初回起動のときだけ +1 し、以降は読み取りのみ。
@@ -1743,7 +2331,7 @@
   }
 
   function addSample() {
-    const picks = (window.SPOT_PRESETS || []).slice(0, 4);
+    const picks = activePresets().slice(0, 4);
     const now = new Date().toISOString();
     const added = picks.map((p) => normalize({
       id: uid(),
@@ -1912,9 +2500,11 @@
 
     applyTheme(localStorage.getItem(THEME_KEY));
     loadCategories();   // 分類は登録データより先に読む（normalize が参照するため）
+    initDev();          // プリセットの上書きも、検索より先に読む
     fillCategorySelects();
     load();
     bind();
+    bindDev();
     buildQuickGrid();
     render();
     updateOnlineBadge();

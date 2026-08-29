@@ -1,6 +1,6 @@
 /* Service Worker — ホーム画面に追加してオフラインでも開けるようにする */
 /* アプリを更新したらこの値を上げる。古いキャッシュを捨てて確実に新しい版を配る */
-const VERSION = 'v7';
+const VERSION = 'v8';
 const SHELL_CACHE = `travel-wishlist-shell-${VERSION}`;
 /* タイルのキャッシュ名はバージョンを付けない。アプリを更新しても
    利用者がダウンロードした地図を消さないため */

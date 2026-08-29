@@ -1,6 +1,6 @@
 /* Service Worker — ホーム画面に追加してオフラインでも開けるようにする */
 /* アプリを更新したらこの値を上げる。古いキャッシュを捨てて確実に新しい版を配る */
-const VERSION = 'v9';
+const VERSION = 'v10';
 const SHELL_CACHE = `travel-wishlist-shell-${VERSION}`;
 /* タイルのキャッシュ名はバージョンを付けない。アプリを更新しても
    利用者がダウンロードした地図を消さないため */
@@ -97,18 +97,26 @@ self.addEventListener('fetch', (event) => {
   event.respondWith((async () => {
     const cache = await caches.open(SHELL_CACHE);
     const hit = await cache.match(req, { ignoreSearch: true });
-    const network = fetch(req)
-      .then((res) => {
-        if (res.ok) cache.put(req, res.clone());
-        return res;
-      })
-      .catch(() => null);
 
     if (hit) {
-      event.waitUntil(network);
+      // 裏で最新を取り直す。cache: 'no-cache' でブラウザの HTTP キャッシュを迂回しないと、
+      // GitHub Pages の max-age が切れるまで古いファイルを掴み続け、
+      // presets.csv を直しても反映が遅れる
+      event.waitUntil((async () => {
+        try {
+          const fresh = await fetch(req.url, { cache: 'no-cache' });
+          if (fresh.ok) await cache.put(req, fresh.clone());
+        } catch (err) { /* オフラインなら次の起動に回す */ }
+      })());
       return hit;
     }
-    const res = await network;
+
+    const res = await fetch(req)
+      .then((r) => {
+        if (r.ok) cache.put(req, r.clone());
+        return r;
+      })
+      .catch(() => null);
     if (res) return res;
     if (req.mode === 'navigate') {
       const fallback = await cache.match('./index.html');

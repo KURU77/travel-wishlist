@@ -251,14 +251,15 @@
       <p class="hint" id="devMore" hidden></p>
 
       <div class="dev-actions">
-        <button type="button" class="btn btn-primary wide" id="devExportBtn">presets.js を書き出す</button>
-        <button type="button" class="btn wide" id="devCopyBtn">presets.js をコピー</button>
+        <button type="button" class="btn btn-primary wide" id="devCopyBtn">追加・編集分をCSV行でコピー</button>
+        <button type="button" class="btn wide" id="devExportBtn">presets.csv 全体を書き出す</button>
         <button type="button" class="btn wide" id="devOverlayExportBtn">上書き分をJSONで書き出し</button>
         <button type="button" class="btn wide" id="devOverlayImportBtn">上書き分のJSONを読み込み</button>
         <button type="button" class="btn btn-danger wide" id="devResetBtn">上書きをすべて破棄</button>
         <button type="button" class="btn wide" id="devExitBtn">開発モードを終了</button>
       </div>
-      <p class="hint">編集内容はこの端末の中だけに保存されます。全員に反映するには presets.js を書き出して Git にコミットしてください。</p>
+      <p class="hint">編集内容はこの端末の中だけに保存されます。全員の候補に反映するには、コピーした行を
+      <b>data/presets.csv</b> に貼って保存してください（GitHub Actions が presets.js を作り直します）。</p>
     </div>
   </form>
 </dialog>

@@ -1,7 +1,10 @@
-/* 内蔵プリセット — オフラインでも候補が出るように、有名な観光地・世界遺産・体験施設・グルメを収録
-   n: 名称 / k: 読み・別名・所在地（検索用） / c: 所在地 / lat,lng: 座標
-   cat: 分類 / whc: 世界遺産 / o: OSM ID（営業時間などの取得に使う）
-   国内332件は OpenStreetMap の実データから座標を取得。世界72件と合わせて計404件 */
+/* 自動生成ファイル — 直接編集しないこと。
+   手で足したり直したりするのは data/presets.csv のほう。
+   保存すると GitHub Actions がこのファイルを作り直す。
+   手元で作り直すときは: node tools/build-presets.mjs
+
+   n: 名称 / k: 検索キー / c: 所在地 / lat,lng: 座標
+   cat: 分類 / whc: 世界遺産 / o: OSM ID   （全405件） */
 window.SPOT_PRESETS = [
   { n: '姫路城', k: 'ひめじじょう himeji castle 白鷺城', c: '日本 / 兵庫県姫路市', lat: 34.8394, lng: 134.6939, cat: 'castle', whc: true },
   { n: '原爆ドーム', k: 'げんばくどーむ atomic bomb dome', c: '日本 / 広島県広島市', lat: 34.3955, lng: 132.4536, cat: 'monument', whc: true },
@@ -75,8 +78,6 @@ window.SPOT_PRESETS = [
   { n: 'キリマンジャロ国立公園', k: 'きりまんじゃろ kilimanjaro', c: 'タンザニア', lat: -3.0674, lng: 37.3556, cat: 'nature', whc: true },
   { n: 'ウルル（エアーズロック）', k: 'うるる uluru ayers rock', c: 'オーストラリア / ノーザンテリトリー', lat: -25.3444, lng: 131.0369, cat: 'nature', whc: true },
   { n: 'グレート・バリア・リーフ', k: 'ぐれーとばりありーふ great barrier reef', c: 'オーストラリア / クイーンズランド州', lat: -18.2871, lng: 147.6992, cat: 'nature', whc: true },
-
-  /* ---- 日本の都道府県別（観光・体験・グルメ・温泉ほか） ---- */
   { n: '白い恋人パーク', k: '白い恋人パーク 札幌市 北海道 museum', c: '日本 / 北海道 札幌市', lat: 43.08869, lng: 141.27168, cat: 'museum', whc: false, o: 'N2422507432' },
   { n: '旭山動物園', k: '旭山動物園 旭川市 北海道 zoo', c: '日本 / 北海道 旭川市', lat: 43.76864, lng: 142.47927, cat: 'activity', whc: false, o: 'W267361081' },
   { n: '函館朝市', k: '函館朝市 函館市 北海道 marketplace', c: '日本 / 北海道 函館市', lat: 41.77224, lng: 140.72482, cat: 'shop', whc: false, o: 'W1117395054' },
@@ -255,7 +256,7 @@ window.SPOT_PRESETS = [
   { n: '清水寺', k: '清水寺 京都市 京都府 place_of_worship', c: '日本 / 京都府 京都市', lat: 34.9943, lng: 135.78444, cat: 'temple', whc: true, o: 'W336641107' },
   { n: '伏見稲荷大社', k: '伏見稲荷大社 京都市 京都府 viewpoint', c: '日本 / 京都府 京都市', lat: 34.96698, lng: 135.77476, cat: 'temple', whc: false, o: 'N6865347485' },
   { n: '金閣寺', k: '金閣寺 京都市 京都府 place_of_worship', c: '日本 / 京都府 京都市', lat: 35.03953, lng: 135.72954, cat: 'temple', whc: false, o: 'W98115917' },
-  { n: '錦市場', k: '錦市場 京都市 京都府 marketplace', c: '日本 / 京都府 京都市', lat: 35.00502, lng: 135.76557, cat: 'shop', whc: false, o: 'W772134672' },
+  { n: '錦市場', k: '錦市場 にしきいちば 京都の台所 中京区 京都府', c: '日本 / 京都府 京都市', lat: 35.00502, lng: 135.76557, cat: 'shop', whc: false, o: 'W772134672' },
   { n: '天橋立', k: '天橋立 宮津市 京都府 memorial', c: '日本 / 京都府 宮津市', lat: 35.577, lng: 135.1979, cat: 'heritage', whc: false, o: 'N6423747555' },
   { n: '三十三間堂', k: '三十三間堂 京都市 京都府 place_of_worship', c: '日本 / 京都府 京都市', lat: 34.98817, lng: 135.77178, cat: 'temple', whc: false, o: 'W31842037' },
   { n: '二条城', k: '二条城 京都市 京都府 attraction', c: '日本 / 京都府 京都市', lat: 35.01401, lng: 135.74854, cat: 'castle', whc: true, o: 'W57111281' },
@@ -328,7 +329,7 @@ window.SPOT_PRESETS = [
   { n: '栗林公園', k: '栗林公園 高松市 香川県 garden', c: '日本 / 香川県 高松市', lat: 34.3295, lng: 134.04393, cat: 'park', whc: false, o: 'W60252671' },
   { n: '金刀比羅宮', k: '金刀比羅宮 琴平町 香川県 place_of_worship', c: '日本 / 香川県 琴平町', lat: 34.18399, lng: 133.80939, cat: 'temple', whc: false, o: 'W139583694' },
   { n: '父母ヶ浜', k: '父母ヶ浜(ちちぶがはま)海水浴場 三豊市 香川県 beach_resort', c: '日本 / 香川県 三豊市', lat: 34.18831, lng: 133.64683, cat: 'other', whc: false, o: 'W671989025' },
-  { n: '中野うどん学校', k: '中野うどん学校 A館 琴平町 香川県 restaurant', c: '日本 / 香川県 琴平町', lat: 34.18698, lng: 133.8182, cat: 'gourmet', whc: false, o: 'N5537572222' },
+  { n: '中野うどん学校', k: '中野うどん学校 うどん打ち体験 琴平町 香川県', c: '日本 / 香川県 琴平町', lat: 34.18698, lng: 133.8182, cat: 'activity', whc: false, o: 'N5537572222' },
   { n: '屋島', k: '屋島 高松市 香川県 station', c: '日本 / 香川県 高松市', lat: 34.33658, lng: 134.10918, cat: 'nature', whc: false, o: 'N8119625813' },
   { n: '地中美術館', k: '地中美術館 直島町 香川県 museum', c: '日本 / 香川県 直島町', lat: 34.4478, lng: 133.98476, cat: 'museum', whc: false, o: 'W401738807' },
   { n: 'エンジェルロード', k: 'エンジェルロード 土庄町 香川県 locality', c: '日本 / 香川県 土庄町', lat: 34.47761, lng: 134.18865, cat: 'city', whc: false, o: 'N2573185393' },
@@ -409,4 +410,5 @@ window.SPOT_PRESETS = [
   { n: '豊洲市場', k: '豊洲市場(7街区) 江東区 東京都 marketplace', c: '日本 / 東京都 江東区', lat: 35.64215, lng: 139.78272, cat: 'shop', whc: false, o: 'W436183396' },
   { n: '高尾山', k: '高尾山 東京都 peak', c: '日本 / 東京都', lat: 35.62523, lng: 139.24369, cat: 'nature', whc: false, o: 'N675449030' },
   { n: '浅草寺', k: '金龍山浅草寺 台東区 東京都 place_of_worship', c: '日本 / 東京都 台東区', lat: 35.7134, lng: 139.79553, cat: 'temple', whc: false, o: 'W173154847' },
+  { n: '金沢おでん', k: 'かなざわおでん 郷土料理 金沢市 石川県', c: '日本 / 石川県 金沢市', lat: 36.5613, lng: 136.6562, cat: 'gourmet', whc: false },
 ];

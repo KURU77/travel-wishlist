@@ -1744,6 +1744,13 @@
     });
     if (!next.n) { toast('名称を入れてください'); return; }
 
+    // CSV 側は名称を一意な鍵にしているので、ここでも重複を弾く
+    const clash = activePresets().some((p) => p !== editingPreset && p.n === next.n);
+    if (clash) {
+      toast(`「${next.n}」は既にあります。別の名前にしてください`);
+      return;
+    }
+
     if (!editingPreset) {
       overlay.added.push(next);
     } else if (editingBaseName) {
@@ -1865,23 +1872,37 @@
 
   // ---- 書き出し・読み込み ----
 
-  function presetsFileText() {
-    const list = activePresets();
-    const esc = (v) => String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    const line = (p) => `  { n: '${esc(p.n)}', k: '${esc(p.k)}', c: '${esc(p.c)}', `
-      + `lat: ${p.lat}, lng: ${p.lng}, cat: '${esc(p.cat)}', whc: ${!!p.whc}`
-      + `${p.o ? `, o: '${esc(p.o)}'` : ''} },`;
+  // data/presets.csv がプリセットの唯一のソース。js/presets.js は
+  // tools/build-presets.mjs がそこから作り直す生成物なので、ここでは
+  // 「CSV に貼れる形」で書き出す。
 
-    return [
-      '/* 内蔵プリセット — オフラインでも候補が出るように、有名な観光地・世界遺産・体験施設・グルメを収録',
-      '   n: 名称 / k: 読み・別名・所在地（検索用） / c: 所在地 / lat,lng: 座標',
-      '   cat: 分類 / whc: 世界遺産 / o: OSM ID（営業時間などの取得に使う）',
-      `   計${list.length}件。アプリの開発モード（プリセット編集）から書き出したもの */`,
-      'window.SPOT_PRESETS = [',
-      ...list.map(line),
-      '];',
-      '',
-    ].join('\n');
+  /* data/presets.csv と同じ列 */
+  const CSV_COLUMNS = ['名称', '検索キー', '所在地', '緯度', '経度', '分類', '世界遺産', 'OSM_ID'];
+
+  function csvCell(v) {
+    const s = String(v == null ? '' : v);
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }
+
+  function csvRow(p) {
+    return [p.n, p.k, p.c, p.lat, p.lng, p.cat, p.whc ? 'yes' : '', p.o || '']
+      .map(csvCell).join(',');
+  }
+
+  /** presets.csv 全体（丸ごと差し替えたいとき用） */
+  function presetsCsvText() {
+    return `${CSV_COLUMNS.join(',')}\n${activePresets().map(csvRow).join('\n')}\n`;
+  }
+
+  /** この端末で足した・直したぶんだけの CSV 行（貼り付け用） */
+  function changedCsvText() {
+    const rows = [];
+    (window.SPOT_PRESETS || []).forEach((p) => {
+      const e = overlay.edited[p.n];
+      if (e) rows.push(csvRow({ ...p, ...e }));
+    });
+    overlay.added.forEach((p) => rows.push(csvRow(p)));
+    return rows.join('\n');
   }
 
   async function shareText(text, filename, type) {
@@ -1905,10 +1926,12 @@
   }
 
   async function copyPresets() {
-    const text = presetsFileText();
+    const text = changedCsvText();
+    if (!text) { toast('追加・編集したプリセットがありません'); return; }
+    const count = text.split("\n").length;
     try {
       await navigator.clipboard.writeText(text);
-      toast(`presets.js をコピーしました（${text.length.toLocaleString('ja-JP')} 文字）`);
+      toast(`${count}行コピーしました。data/presets.csv に貼ってください`);
     } catch (err) {
       console.warn('クリップボードに書けませんでした', err);
       toast('コピーできませんでした。書き出しを使ってください');
@@ -1947,7 +1970,7 @@
     el.devNewBtn.addEventListener('click', () => openPresetDialog(null));
     el.devFilter.addEventListener('input', renderDevList);
 
-    el.devExportBtn.addEventListener('click', () => shareText(presetsFileText(), 'presets.js', 'text/javascript'));
+    el.devExportBtn.addEventListener('click', () => shareText(presetsCsvText(), 'presets.csv', 'text/csv'));
     el.devCopyBtn.addEventListener('click', copyPresets);
     el.devOverlayExportBtn.addEventListener('click', () => shareText(
       JSON.stringify(overlay, null, 2), 'presets-overlay.json', 'application/json',

@@ -1,0 +1,40 @@
+name: プリセットを再生成
+
+# data/presets.csv を編集して push すると、js/presets.js を作り直して
+# コミットし直す。GitHub の Web エディタから直しただけで公開まで進む。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'data/presets.csv'
+      - 'tools/build-presets.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: CSV を検査して presets.js を生成
+        run: node tools/build-presets.mjs --bump-sw
+
+      - name: 変更があればコミットする
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "presets.js に変更はありませんでした"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add js/presets.js sw.js
+          git commit -m "data/presets.csv から js/presets.js を再生成"
+          git push

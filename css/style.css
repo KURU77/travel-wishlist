@@ -945,3 +945,42 @@ html[data-theme="dark"] .dev-state.is-added { background: #16311f; color: #86efa
 
 .dev-actions { display: grid; gap: 8px; margin-top: 18px; }
 .dev-actions .btn.wide { margin-top: 0; }
+
+/* ---------- 端末間の同期 ---------- */
+
+.sync-btn svg { width: 23px; height: 23px; }
+.sync-btn .ok,
+.sync-btn .bang { opacity: 0; transition: opacity .2s; }
+.sync-btn.ok { color: var(--accent); }
+.sync-btn.ok .ok { opacity: 1; }
+.sync-btn.syncing { color: var(--accent); }
+.sync-btn.syncing svg { animation: sync-pulse 1s ease-in-out infinite; }
+.sync-btn.login,
+.sync-btn.error { color: var(--danger); }
+.sync-btn.login .bang,
+.sync-btn.error .bang { opacity: 1; }
+.sync-btn.offline { color: var(--text-sub); }
+@keyframes sync-pulse { 50% { opacity: .35; } }
+
+.sync-text { margin: 0; font-size: 15px; line-height: 1.7; }
+.sync-text.sub { font-size: 13px; color: var(--text-sub); }
+.sync-warn {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: var(--gold-soft);
+  color: var(--gold);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.sync-who {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.sync-who b { font-size: 15px; word-break: break-all; }
+.sync-status { font-size: 13px; color: var(--text-sub); }
+#syncBody .btn.wide { margin-top: 0; }

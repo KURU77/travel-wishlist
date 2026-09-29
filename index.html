@@ -28,11 +28,19 @@
     <span id="offlineBadge" class="offline-badge" hidden>オフライン</span>
     <span id="devBadge" class="dev-badge" hidden title="開発モード">DEV</span>
     <div class="header-actions">
+      <button type="button" id="syncBtn" class="icon-btn sync-btn off" hidden aria-label="同期">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M7 18.5h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 9.1 4.75 4.75 0 0 0 7 18.5z"/>
+          <path class="ok" d="M9.5 13.5l2 2 3.5-3.5"/>
+          <path class="bang" d="M12 10.5v3M12 16v.01"/>
+        </svg>
+      </button>
       <button type="button" id="themeToggle" class="icon-btn" title="テーマ切り替え" aria-label="テーマ切り替え">🌙</button>
       <div class="menu">
         <button type="button" id="menuBtn" class="icon-btn" title="メニュー" aria-label="メニュー" aria-haspopup="true" aria-expanded="false">⋯</button>
         <div class="menu-list" id="menuList" role="menu" hidden>
           <button type="button" id="devPresetBtn" role="menuitem" hidden>🛠 プリセットを編集</button>
+          <button type="button" id="syncMenuBtn" role="menuitem">☁ 端末間の同期（Google）</button>
           <button type="button" id="editCatBtn" role="menuitem">分類を編集</button>
           <button type="button" id="offlineBtn" role="menuitem">地図をオフライン保存</button>
           <button type="button" id="exportBtn" role="menuitem">JSONで書き出し</button>
@@ -325,6 +333,18 @@
       <button type="button" class="btn btn-danger wide" id="pDeleteBtn" hidden>このプリセットを削除</button>
       <button type="button" class="btn wide" id="pRevertBtn" hidden>編集を取り消して元に戻す</button>
     </div>
+  </form>
+</dialog>
+
+<!-- 端末間の同期 -->
+<dialog id="syncDialog" class="dialog">
+  <form method="dialog">
+    <div class="dialog-head">
+      <span class="link-btn ghost" aria-hidden="true">閉じる</span>
+      <h2>端末間の同期</h2>
+      <button type="button" class="link-btn strong" id="syncCloseBtn">閉じる</button>
+    </div>
+    <div class="dialog-body" id="syncBody"></div>
   </form>
 </dialog>
 

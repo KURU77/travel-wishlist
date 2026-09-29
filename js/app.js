@@ -204,6 +204,12 @@
     clearBtn: $('#clearBtn'),
     themeToggle: $('#themeToggle'),
     toast: $('#toast'),
+    syncBtn: $('#syncBtn'),
+    syncMenuBtn: $('#syncMenuBtn'),
+    syncDialog: $('#syncDialog'),
+    syncBody: $('#syncBody'),
+    syncCloseBtn: $('#syncCloseBtn'),
+    syncStatus: null,
   };
 
   /** @type {Array<object>} */
@@ -227,6 +233,7 @@
   }
 
   function save() {
+    trackItemsSaved(); // 変わった登録に時刻を押し、消えた登録を墓標にする（同期用）
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
     } catch (err) {
@@ -262,17 +269,18 @@
     if (added.length) {
       const at = categories.findIndex((c) => c.value === FALLBACK_CATEGORY);
       categories.splice(at < 0 ? categories.length : at, 0, ...added);
-      saveCategories();
+      saveCategories({ quiet: true }); // 移行は利用者の編集ではないので同期の時刻を押さない
     }
     try { localStorage.setItem(CATEGORY_REV_KEY, String(CATEGORY_REV)); } catch { /* 無視 */ }
   }
 
-  function saveCategories() {
+  function saveCategories(opts) {
     try {
       localStorage.setItem(CATEGORY_KEY, JSON.stringify(categories));
     } catch (err) {
       console.error('分類の保存に失敗しました', err);
     }
+    trackCategoriesSaved(!!(opts && opts.quiet));
   }
 
   function normalizeCategory(raw) {
@@ -313,6 +321,7 @@
       lng: Number.isFinite(lng) ? lng : null,
       createdAt: String(o.createdAt || new Date().toISOString()),
       updatedAt: String(o.updatedAt || new Date().toISOString()),
+      _u: Number(o._u) || 0, // 同期用の更新時刻（ms）
     };
   }
 
@@ -2376,6 +2385,600 @@
     toast('サンプルを追加しました');
   }
 
+  // ---------- 端末間の同期（Google ドライブのアプリ専用領域） ----------
+  //
+  // ・データは本人の Google ドライブの「アプリ専用フォルダ」（appDataFolder）に
+  //   travel-wishlist.json として置く。ドライブの画面には出ず、このアプリ以外からは見えない。
+  //   サーバーも SDK も使わず、Drive API を fetch で直接叩く。
+  // ・登録した場所は1件ごとに更新時刻 _u を持ち、削除は墓標（id → 削除時刻）で残す。
+  //   同期のたびに双方をマージするので、別々の端末で別の場所を直しても両方残る。
+  //   同じ場所を両方で直したときは、後から直したほうが勝つ。
+  // ・分類の一覧は丸ごと1単位（catsU）で新しいほうを採る。ただし登録が参照している分類は
+  //   必ず残す（残さないと、その登録が「その他」に化けて全端末に広がってしまう）。
+  // ・認証はリダイレクト方式（トークンは URL の # で受け取る）。ホーム画面に追加した
+  //   iPhone ではポップアップが使えないため。
+
+  const GOOGLE_CLIENT_ID = '1088975026923-gg6ra210l32ql6g7hllg6i11qei8agm9.apps.googleusercontent.com';
+  const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+  const DRIVE = 'https://www.googleapis.com/drive/v3/files';
+  const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
+  const SYNC_FILE = 'travel-wishlist.json';
+  const SYNC_KEY = 'travel-wishlist.sync';
+  const DELETED_KEY = 'travel-wishlist.deleted.v1';
+  const CATS_U_KEY = 'travel-wishlist.categories.u';
+  const OAUTH_KEY = 'travel-wishlist.oauth';
+  const SILENT_KEY = 'travel-wishlist.silent-login';
+
+  /** @type {Object<string, number>} 削除した登録の id → 削除時刻（ms） */
+  let deleted = {};
+  /** 分類の一覧を利用者が最後に変えた時刻（ms）。0 は既定のまま一度も触っていない */
+  let catsU = 0;
+  let SHADOW = {};
+  let catsShadow = '';
+  let applyingRemote = false;
+  const sync = { running: false, again: false, timer: 0, state: 'off', detail: '', justLoggedIn: false, flash: '' };
+  let sm = readJSON(SYNC_KEY) || {};
+
+  function readJSON(key) {
+    try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
+  }
+
+  function saveSM() {
+    try { localStorage.setItem(SYNC_KEY, JSON.stringify(sm)); } catch { /* 無視 */ }
+  }
+
+  // ---- 変更の記録（更新時刻と墓標） ----
+
+  function recSig(rec) {
+    const o = {};
+    Object.keys(rec).sort().forEach((k) => { if (k !== '_u') o[k] = rec[k]; });
+    return JSON.stringify(o);
+  }
+
+  /** 分類一覧の中身（順序込み） */
+  function catSig(list) {
+    return JSON.stringify(list.map((c) => [c.value, c.label, c.icon]));
+  }
+
+  /** 既定から変えたかどうかの判定用（並び順は見ない。rev の移行で順番が変わるため） */
+  function catSetSig(list) {
+    return JSON.stringify(list.map((c) => [c.value, c.label, c.icon]).sort());
+  }
+
+  function rebuildShadow() {
+    SHADOW = {};
+    items.forEach((it) => {
+      if (!it._u) it._u = 1;
+      SHADOW[it.id] = recSig(it);
+    });
+  }
+
+  /** 前回の保存から変わった登録に時刻を押し、消えた登録は墓標にする */
+  function stampChanges() {
+    const now = Date.now();
+    const seen = new Set();
+    items.forEach((it) => {
+      seen.add(it.id);
+      const sig = recSig(it);
+      if (SHADOW[it.id] !== sig) {
+        it._u = now;
+        SHADOW[it.id] = sig;
+      }
+    });
+    Object.keys(SHADOW).forEach((id) => {
+      if (!seen.has(id)) {
+        deleted[id] = now;
+        delete SHADOW[id];
+      }
+    });
+  }
+
+  function loadSyncMeta() {
+    const d = readJSON(DELETED_KEY);
+    deleted = d && typeof d === 'object' && !Array.isArray(d) ? d : {};
+    catsU = Number(localStorage.getItem(CATS_U_KEY)) || 0;
+    // 同期の機能より前に分類を自分で変えていた人は「古いが編集済み」扱いにする。
+    // 0 のままだと、既定のままの端末と引き分けになり、独自の分類が広がらない
+    if (!catsU && catSetSig(categories) !== catSetSig(defaultCategories())) catsU = 1;
+    catsShadow = catSig(categories);
+    rebuildShadow();
+  }
+
+  /** save() から呼ぶ。同期の反映中は時刻を押さない */
+  function trackItemsSaved() {
+    if (!applyingRemote) stampChanges();
+    try { localStorage.setItem(DELETED_KEY, JSON.stringify(deleted)); } catch { /* 無視 */ }
+    if (!applyingRemote) scheduleSync();
+  }
+
+  /** saveCategories() から呼ぶ。利用者が変えたときだけ時刻を押す */
+  function trackCategoriesSaved(quiet) {
+    const sig = catSig(categories);
+    const changed = sig !== catsShadow;
+    catsShadow = sig;
+    if (quiet || applyingRemote || !changed) return;
+    catsU = Date.now();
+    try { localStorage.setItem(CATS_U_KEY, String(catsU)); } catch { /* 無視 */ }
+    scheduleSync();
+  }
+
+  // ---- マージ ----
+
+  function mergeDeleted(a, b) {
+    const out = {};
+    [a || {}, b || {}].forEach((d) => {
+      Object.keys(d).forEach((id) => { out[id] = Math.max(out[id] || 0, Number(d[id]) || 0); });
+    });
+    return out;
+  }
+
+  function mergeItems(a, b, del) {
+    const out = [];
+    const byB = new Map();
+    const used = new Set();
+    (b || []).forEach((r) => { if (r && r.id) byB.set(r.id, r); });
+    const alive = (r) => !(del[r.id] && del[r.id] >= (r._u || 0));
+
+    (a || []).forEach((r) => {
+      if (!r || !r.id) return;
+      const o = byB.get(r.id);
+      used.add(r.id);
+      const winner = o && (o._u || 0) > (r._u || 0) ? o : r;
+      if (alive(winner)) out.push({ ...winner });
+    });
+    (b || []).forEach((r) => {
+      if (!r || !r.id || used.has(r.id)) return;
+      if (alive(r)) out.push({ ...r });
+    });
+    return out;
+  }
+
+  /** 分類：新しいほうの一覧を採り、登録が使っているのに無い分類は負けたほうから拾う */
+  function mergeCategories(localList, localU, remoteList, remoteU, mergedItems) {
+    const remoteOk = Array.isArray(remoteList) && remoteList.length > 0;
+    const remoteWins = remoteOk && (Number(remoteU) || 0) > (localU || 0);
+    const win = (remoteWins ? remoteList : localList).map(normalizeCategory).filter((c) => c.value);
+    const lose = (remoteWins ? localList : (remoteOk ? remoteList : [])).map(normalizeCategory);
+
+    const have = new Set(win.map((c) => c.value));
+    const used = new Set(mergedItems.map((i) => i.category));
+    let rescued = 0;
+    lose.forEach((c) => {
+      if (!used.has(c.value) || have.has(c.value)) return;
+      const at = win.findIndex((x) => x.value === FALLBACK_CATEGORY);
+      win.splice(at < 0 ? win.length : at, 0, c);
+      have.add(c.value);
+      rescued += 1;
+    });
+    if (!have.has(FALLBACK_CATEGORY)) win.push({ value: FALLBACK_CATEGORY, label: 'その他', icon: '📍' });
+
+    return {
+      list: win,
+      u: remoteWins ? Number(remoteU) || 0 : localU,
+      changed: remoteWins || rescued > 0,
+    };
+  }
+
+  /** ドライブに置く JSON。比較に使うので、並びとキーの順を毎回そろえる */
+  function syncPayload(list, del, cats, cu) {
+    const sortedItems = list.slice()
+      .sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0))
+      .map((it) => {
+        const o = {};
+        Object.keys(it).sort().forEach((k) => { o[k] = it[k]; });
+        return o;
+      });
+    const d = {};
+    Object.keys(del || {}).sort().forEach((k) => { d[k] = del[k]; });
+    return JSON.stringify({
+      v: 1,
+      app: 'travel-wishlist',
+      items: sortedItems,
+      deleted: d,
+      categories: (cats || []).map((c) => ({ value: c.value, label: c.label, icon: c.icon })),
+      catsU: cu || 0,
+    });
+  }
+
+  /** 同名ファイルが複数できてしまったとき（2台が同時に初回同期した等）にまとめる */
+  function mergeRemote(a, b) {
+    const del = mergeDeleted(a.deleted, b.deleted);
+    const bNewer = (Number(b.catsU) || 0) > (Number(a.catsU) || 0);
+    return {
+      items: mergeItems(a.items, b.items, del),
+      deleted: del,
+      categories: bNewer ? b.categories : a.categories,
+      catsU: Math.max(Number(a.catsU) || 0, Number(b.catsU) || 0),
+    };
+  }
+
+  // ---- 認証（リダイレクト方式） ----
+
+  function tokenOK() {
+    return !!(sm.token && sm.exp && Date.now() < sm.exp);
+  }
+
+  function redirectURI() {
+    return location.origin + location.pathname.replace(/index\.html$/, '');
+  }
+
+  /** LINE・Instagram などのアプリ内ブラウザは Google がログインを拒否する */
+  function inAppBrowser() {
+    return /Line\/|Instagram|FBAN|FBAV|FB_IAB|MicroMessenger/i.test(navigator.userAgent);
+  }
+
+  function login(silent) {
+    if (inAppBrowser()) {
+      if (!silent) toast('アプリ内ブラウザではログインできません。Safari で開いてください');
+      return;
+    }
+    const st = uid() + uid();
+    try { sessionStorage.setItem(OAUTH_KEY, JSON.stringify({ st, silent: !!silent })); } catch { /* 無視 */ }
+    const q = {
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: redirectURI(),
+      response_type: 'token',
+      scope: DRIVE_SCOPE,
+      include_granted_scopes: 'true',
+      state: st,
+    };
+    if (sm.email) q.login_hint = sm.email;
+    if (silent) q.prompt = 'none';
+    location.href = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams(q)}`;
+  }
+
+  /** 起動時：Google から戻ってきたところならトークンを受け取り、URL を掃除する */
+  function takeOAuthReturn() {
+    const h = location.hash;
+    if (h.indexOf('access_token=') < 0 && h.indexOf('error=') < 0) return;
+    const q = new URLSearchParams(h.replace(/^#\/?/, ''));
+    let saved = {};
+    try {
+      saved = JSON.parse(sessionStorage.getItem(OAUTH_KEY)) || {};
+      sessionStorage.removeItem(OAUTH_KEY);
+    } catch { saved = {}; }
+
+    if (q.get('state') && q.get('state') === saved.st) {
+      if (q.get('access_token')) {
+        sm.token = q.get('access_token');
+        sm.exp = Date.now() + (Math.max(60, Number(q.get('expires_in')) || 3600) - 120) * 1000;
+        sm.signedIn = true;
+        sm.needLogin = false;
+        saveSM();
+        sync.justLoggedIn = true;
+      } else if (q.get('error')) {
+        sm.needLogin = true;
+        saveSM();
+        if (!saved.silent) sync.flash = `ログインできませんでした（${q.get('error')}）`;
+      }
+    }
+    // トークンを URL に残さない
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+
+  function logout() {
+    if (sm.token) {
+      fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(sm.token)}`, { method: 'POST', mode: 'no-cors' })
+        .catch(() => {});
+    }
+    clearTimeout(sync.timer);
+    sm = {};
+    saveSM();
+    setSyncState('off');
+    renderSyncUI();
+    toast('ログアウトしました');
+  }
+
+  // ---- Google ドライブ API ----
+
+  async function gfetch(url, opts = {}) {
+    const res = await fetch(url, {
+      ...opts,
+      headers: { Authorization: `Bearer ${sm.token}`, ...(opts.headers || {}) },
+    });
+    if (!res.ok) {
+      const e = new Error(`Google ドライブ ${res.status}`);
+      e.status = res.status;
+      throw e;
+    }
+    return res;
+  }
+
+  async function driveList() {
+    let all = [];
+    let tok = '';
+    do {
+      const fields = encodeURIComponent('nextPageToken,files(id,name,modifiedTime)');
+      const url = `${DRIVE}?spaces=appDataFolder&pageSize=100&fields=${fields}${tok ? `&pageToken=${encodeURIComponent(tok)}` : ''}`;
+      const j = await (await gfetch(url)).json();
+      all = all.concat(j.files || []);
+      tok = j.nextPageToken || '';
+    } while (tok);
+    return all;
+  }
+
+  async function driveGetJSON(id) {
+    return (await gfetch(`${DRIVE}/${id}?alt=media`)).json();
+  }
+
+  async function driveCreate(name, body) {
+    const b = `travelwishlist${uid()}`;
+    const meta = JSON.stringify({ name, parents: ['appDataFolder'] });
+    const blob = new Blob([
+      `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n`,
+      `--${b}\r\nContent-Type: application/json\r\n\r\n`, body, `\r\n--${b}--`,
+    ]);
+    return (await gfetch(`${UPLOAD}?uploadType=multipart&fields=id`, {
+      method: 'POST',
+      headers: { 'Content-Type': `multipart/related; boundary=${b}` },
+      body: blob,
+    })).json();
+  }
+
+  async function driveUpdate(id, body) {
+    await gfetch(`${UPLOAD}/${id}?uploadType=media`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+  }
+
+  async function driveDelete(id) {
+    try {
+      await gfetch(`${DRIVE}/${id}`, { method: 'DELETE' });
+    } catch (e) {
+      if (e.status !== 404) throw e;
+    }
+  }
+
+  async function driveAbout() {
+    return (await gfetch('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress,displayName)')).json();
+  }
+
+  // ---- 同期本体 ----
+
+  /** 編集中のダイアログがあるあいだは、よその変更を流し込まない */
+  function uiBusy() {
+    return el.dialog.open || el.catDialog.open || el.presetDialog.open;
+  }
+
+  function syncLabel() {
+    const ago = sm.last ? `（${agoLabel(sm.last)}）` : '';
+    return {
+      off: '同期していません',
+      ok: `同期済み${ago}`,
+      syncing: '同期中…',
+      login: '再ログインが必要です（タップしてログイン）',
+      error: `同期できませんでした：${sync.detail}`,
+      offline: 'オフライン（つながったら同期します）',
+    }[sync.state] || '';
+  }
+
+  function agoLabel(t) {
+    const m = Math.round((Date.now() - t) / 60000);
+    if (m < 1) return 'たった今';
+    if (m < 60) return `${m}分前`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h}時間前`;
+    const d = new Date(t);
+    return `${d.getMonth() + 1}月${d.getDate()}日`;
+  }
+
+  function setSyncState(state, detail) {
+    sync.state = state;
+    sync.detail = detail || '';
+    el.syncBtn.hidden = !sm.signedIn;
+    el.syncBtn.className = `icon-btn sync-btn ${state}`;
+    el.syncBtn.title = syncLabel();
+    el.syncBtn.setAttribute('aria-label', `同期：${syncLabel()}`);
+    if (el.syncStatus) el.syncStatus.textContent = syncLabel();
+  }
+
+  function scheduleSync(ms) {
+    if (!sm.signedIn || applyingRemote) return;
+    clearTimeout(sync.timer);
+    sync.timer = setTimeout(() => syncNow(false), ms == null ? 3000 : ms);
+  }
+
+  async function syncNow(interactive) {
+    if (!sm.signedIn) { if (interactive) login(false); return; }
+    if (!tokenOK()) {
+      if (interactive) login(false);
+      else setSyncState('login');
+      return;
+    }
+    if (!navigator.onLine) { setSyncState('offline'); return; }
+    if (sync.running) { sync.again = true; return; }
+    if (uiBusy()) { scheduleSync(4000); return; }
+
+    sync.running = true;
+    setSyncState('syncing');
+    try {
+      const files = (await driveList()).filter((f) => f.name === SYNC_FILE);
+      let remote = null;
+      for (const f of files) {
+        const d = await driveGetJSON(f.id);
+        remote = remote ? mergeRemote(remote, d) : d;
+      }
+      const remoteStr = remote
+        ? syncPayload(remote.items || [], remote.deleted, remote.categories, remote.catsU)
+        : '';
+
+      if (remote) {
+        if (uiBusy()) { const e = new Error('busy'); e.busy = true; throw e; }
+        stampChanges(); // まだ時刻を押していない手元の変更を先に確定させる
+
+        const before = syncPayload(items, deleted, categories, catsU);
+        const del = mergeDeleted(deleted, remote.deleted);
+        const mergedRaw = mergeItems(items, remote.items, del);
+        const cats = mergeCategories(categories, catsU, remote.categories, remote.catsU, mergedRaw);
+
+        applyingRemote = true;
+        try {
+          if (cats.changed) {
+            categories = cats.list;
+            catsU = cats.u;
+            ensureFallbackCategory();
+            saveCategories({ quiet: true });
+            try { localStorage.setItem(CATS_U_KEY, String(catsU)); } catch { /* 無視 */ }
+          }
+          deleted = del;
+          // 分類をそろえてから正規化する（先にやると未知の分類が「その他」に化ける）
+          items = mergedRaw.map(normalize);
+          rebuildShadow();
+          save();
+        } finally {
+          applyingRemote = false;
+        }
+
+        if (syncPayload(items, deleted, categories, catsU) !== before) {
+          fillCategorySelects();
+          render();
+        }
+      }
+
+      const mine = syncPayload(items, deleted, categories, catsU);
+      if (!files.length) await driveCreate(SYNC_FILE, mine);
+      else if (mine !== remoteStr || files.length > 1) await driveUpdate(files[0].id, mine);
+      for (const f of files.slice(1)) await driveDelete(f.id);
+
+      sm.last = Date.now();
+      saveSM();
+      setSyncState('ok');
+      if (interactive) toast('同期しました');
+    } catch (e) {
+      if (e.busy) {
+        scheduleSync(4000);
+        setSyncState('ok');
+      } else if (e.status === 401 || e.status === 403) {
+        sm.token = '';
+        sm.exp = 0;
+        saveSM();
+        setSyncState('login');
+        if (interactive) login(false);
+      } else if (!navigator.onLine) {
+        setSyncState('offline');
+      } else {
+        console.warn('同期に失敗しました', e);
+        setSyncState('error', e.message || '通信エラー');
+      }
+    } finally {
+      sync.running = false;
+      if (sync.again) { sync.again = false; scheduleSync(500); }
+    }
+  }
+
+  function syncStartup() {
+    if (sync.flash) { toast(sync.flash); sync.flash = ''; }
+    setSyncState(sm.signedIn ? (tokenOK() ? 'ok' : 'login') : 'off');
+    if (!sm.signedIn) return;
+
+    if (sync.justLoggedIn) {
+      sync.justLoggedIn = false;
+      driveAbout().then((a) => {
+        if (a.user) {
+          sm.email = a.user.emailAddress;
+          sm.name = a.user.displayName;
+          saveSM();
+          renderSyncUI();
+        }
+      }).catch(() => {});
+      toast('ログインしました。同期します');
+      syncNow(false);
+      return;
+    }
+    if (tokenOK()) { syncNow(false); return; }
+
+    // トークン切れ：オンラインなら Google に黙って取り直しに行く（10分に1回まで）
+    const last = Number(localStorage.getItem(SILENT_KEY)) || 0;
+    if (navigator.onLine && !sm.needLogin && Date.now() - last > 10 * 60000) {
+      try { localStorage.setItem(SILENT_KEY, String(Date.now())); } catch { /* 無視 */ }
+      login(true);
+    } else {
+      setSyncState('login');
+    }
+  }
+
+  // ---- 画面 ----
+
+  function openSyncDialog() {
+    renderSyncUI();
+    el.syncDialog.showModal();
+  }
+
+  function renderSyncUI() {
+    const body = el.syncBody;
+    body.innerHTML = '';
+    const p = (text, cls) => {
+      const e = document.createElement('p');
+      e.className = cls || 'sync-text';
+      e.textContent = text;
+      return e;
+    };
+    const button = (label, cls, onClick) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `btn wide ${cls || ''}`;
+      b.textContent = label;
+      b.addEventListener('click', onClick);
+      return b;
+    };
+
+    if (!sm.signedIn) {
+      body.append(
+        p('パソコン・iPad・iPhone で同じリストを使えるようにします。'),
+        p('データはあなたの Google ドライブの「アプリ専用領域」に保存されます。ドライブの画面には出ず、このアプリ以外からは見えません。サーバーは使いません。', 'sync-text sub'),
+      );
+      if (inAppBrowser()) {
+        body.appendChild(p('⚠ LINE や Instagram などのアプリ内ブラウザでは Google がログインを受け付けません。右上のメニューから「Safari で開く」（またはブラウザで開く）を選んでください。', 'sync-warn'));
+      }
+      body.append(
+        button('Google でログイン', 'btn-primary', () => login(false)),
+        p('ログインすると、この端末のデータとクラウドのデータを合わせ、以後は自動で同期します。ほかの端末でも同じ Google アカウントでログインしてください。', 'sync-text sub'),
+      );
+      el.syncStatus = null;
+      return;
+    }
+
+    const who = document.createElement('div');
+    who.className = 'sync-who';
+    const name = document.createElement('b');
+    name.textContent = sm.email || 'Google アカウント';
+    const status = document.createElement('span');
+    status.className = 'sync-status';
+    status.textContent = syncLabel();
+    who.append(name, status);
+    el.syncStatus = status;
+
+    body.append(
+      who,
+      button('今すぐ同期', 'btn-primary', () => syncNow(true)),
+      p('変更は数秒後に自動で送られ、アプリを開いたときに他の端末の変更を取り込みます。ログインの有効期限は約1時間で、切れたら自動で取り直します。取り直せないときは上のボタンを押してください。', 'sync-text sub'),
+      p('同期されるもの：登録した場所・分類。テーマや開発モードの下書きは端末ごとです。', 'sync-text sub'),
+      button('ログアウト', '', () => {
+        if (!confirm('この端末の同期をやめますか？\nデータはこの端末にもクラウドにも残ります。')) return;
+        logout();
+      }),
+    );
+  }
+
+  function bindSync() {
+    el.syncMenuBtn.addEventListener('click', () => { el.menuList.hidden = true; openSyncDialog(); });
+    el.syncCloseBtn.addEventListener('click', () => el.syncDialog.close());
+    el.syncBtn.addEventListener('click', () => {
+      if (sync.state === 'login') { login(false); return; }
+      openSyncDialog();
+      syncNow(false);
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (!sm.signedIn) return;
+      if (document.visibilityState === 'visible') scheduleSync(300);
+      else if (tokenOK() && !sync.running) { clearTimeout(sync.timer); syncNow(false); }
+    });
+    window.addEventListener('online', () => scheduleSync(500));
+  }
+
   // ---------- テーマ ----------
 
   function applyTheme(theme) {
@@ -2486,7 +3089,8 @@
     el.clearBtn.addEventListener('click', () => {
       el.menuList.hidden = true;
       if (!items.length) { toast('データがありません'); return; }
-      if (!confirm(`登録済みの${items.length}件をすべて削除しますか？`)) return;
+      const note = sm.signedIn ? '\n同期している他の端末からも消えます。' : '';
+      if (!confirm(`登録済みの${items.length}件をすべて削除しますか？${note}`)) return;
       items = [];
       save();
       render();
@@ -2517,6 +3121,7 @@
   }
 
   function init() {
+    takeOAuthReturn(); // Google のログインから戻ってきたところならトークンを受け取る（最初に）
     fillSelect(el.status, STATUSES);
     fillSelect(el.priority, PRIORITIES.map((p) => ({ value: p.value, label: '優先度 ' + p.label })));
     fillSelect(el.filterStatus, STATUSES, { value: '', label: 'すべての状態' });
@@ -2526,13 +3131,16 @@
     initDev();          // プリセットの上書きも、検索より先に読む
     fillCategorySelects();
     load();
+    loadSyncMeta();
     bind();
     bindDev();
+    bindSync();
     buildQuickGrid();
     render();
     updateOnlineBadge();
     showView('home');
     countUsers();
+    syncStartup();
 
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
       window.addEventListener('load', () => {

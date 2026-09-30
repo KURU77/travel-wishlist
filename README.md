@@ -61,14 +61,17 @@ iPhone のホーム画面に追加して、アプリのように使うことを�
 
 ### 初回だけ必要な設定（開発者向け）
 
-認証は OAuth のリダイレクト方式（ホーム画面に追加した iPhone でも動くため）で、研究デスク（lab-desk）と同じ OAuth クライアントを共用しています。
-Google Cloud Console →「API とサービス」→「認証情報」→ そのクライアントを開き、**承認済みのリダイレクト URI** に次を追加してください。
+認証は OAuth のリダイレクト方式（ホーム画面に追加した iPhone でも動くため）で、このアプリ専用の OAuth クライアント
+`1088975026923-bgmo6cqo4on3qarov1sp70eg91p5p414.apps.googleusercontent.com` を使っています（`js/app.js` の `GOOGLE_CLIENT_ID`）。
 
-```
-https://kuru77.github.io/travel-wishlist/
-```
+Google Cloud Console →「API とサービス」→「認証情報」→ このクライアントに、次の2つが登録されている必要があります。
 
-JavaScript 生成元 `https://kuru77.github.io` とスコープ `drive.appdata` は lab-desk で登録済みです。
+| 項目 | 値 |
+|---|---|
+| 承認済みの JavaScript 生成元 | `https://kuru77.github.io` |
+| 承認済みのリダイレクト URI | `https://kuru77.github.io/travel-wishlist/` |
+
+スコープ `drive.appdata` を「データアクセス」に追加しておくこと。
 同意画面が「テスト」のままなら、ログインできるのはテストユーザーに登録したアカウントだけです。
 
 ## 利用人数カウンタについて

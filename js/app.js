@@ -2398,7 +2398,8 @@
   // ・認証はリダイレクト方式（トークンは URL の # で受け取る）。ホーム画面に追加した
   //   iPhone ではポップアップが使えないため。
 
-  const GOOGLE_CLIENT_ID = '1088975026923-gg6ra210l32ql6g7hllg6i11qei8agm9.apps.googleusercontent.com';
+  /* このアプリ専用の OAuth クライアント（公開してよい値） */
+  const GOOGLE_CLIENT_ID = '1088975026923-bgmo6cqo4on3qarov1sp70eg91p5p414.apps.googleusercontent.com';
   const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
   const DRIVE = 'https://www.googleapis.com/drive/v3/files';
   const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
